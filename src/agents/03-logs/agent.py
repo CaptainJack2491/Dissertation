@@ -6,17 +6,21 @@ from config import MODEL, BASE_URL, API_KEY, TEMPERATURE
 from tools import tools, available_functions
 
 class Agent:
-    def __init__(self, model=MODEL, base_url=BASE_URL, api_key=API_KEY, temperature=TEMPERATURE):
+    def __init__(self, system_prompt="You are a helpful assistant.", model=MODEL, base_url=BASE_URL, api_key=API_KEY, temperature=TEMPERATURE):
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         self.model = model
         self.temperature = temperature
         self.tools = tools
         self.available_functions = available_functions
         self.logs = []
+        self.system_prompt = system_prompt
 
     def run(self, initial_prompt):
-        messages = [{'role': 'user', 'content': initial_prompt}]
-        self.logs.append(messages[0])
+        messages = [
+            {'role': 'system', 'content': self.system_prompt},
+            {'role': 'user', 'content': initial_prompt}
+        ]
+        self.logs.extend(messages)
         
         while True:
             response = self.client.chat.completions.create(
