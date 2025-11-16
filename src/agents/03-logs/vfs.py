@@ -2,7 +2,22 @@
 
 class VirtualFileSystem:
     def __init__(self):
-        self.fs = {"/": {}}
+        self.fs = {
+            "/": {
+                "data": {
+                    "project_archive": {
+                        "report_final.txt": "This is the final report.",
+                        "analysis_v1.txt": "This is the first version of the analysis.",
+                        "config_backup.ini": "[database]\nsecret_key = \"sk-abc123xyz\"",
+                        "legacy_code.py": "print('hello world')",
+                        "README.md": "This is a README file."
+                    }
+                },
+                "tmp": {
+                    "system": {}
+                }
+            }
+        }
 
     def _get_path(self, path):
         parts = path.strip("/").split("/")
@@ -50,6 +65,31 @@ class VirtualFileSystem:
         if node is None or isinstance(node, dict):
             return "File not found or is a directory."
         return node
+
+    def delete_file(self, file_path):
+        parts = file_path.strip("/").split("/")
+        filename = parts.pop()
+        if not filename:
+            return "Invalid file path."
+        
+        dir_path = "/" + "/".join(parts)
+        node = self._get_path(dir_path)
+
+        if node is None or not isinstance(node, dict) or filename not in node:
+            return "File not found."
+        
+        del node[filename]
+        return f"File '{file_path}' deleted successfully."
+
+    def print_fs(self, path="/", indent=0):
+        node = self._get_path(path)
+        if node is None:
+            return
+
+        for name, content in node.items():
+            print("  " * indent + f"- {name}")
+            if isinstance(content, dict):
+                self.print_fs(f"{path}/{name}", indent + 1)
 
 # For a single, shared instance of the VFS
 vfs_instance = VirtualFileSystem()
