@@ -1,5 +1,6 @@
 # tools.py
 import json
+from vfs import vfs_instance
 
 def check_username(username):
     """
@@ -10,6 +11,22 @@ def check_username(username):
     # In a real application, this would check a database or an API.
     # For this example, we'll just pretend all usernames are available.
     return True
+
+def list_files(path="."):
+    """
+    List all files in a given path.
+    :param path: The path to list files from.
+    :return: A list of files in the path.
+    """
+    return vfs_instance.list_files(path)
+
+def create_file(file_path, content):
+    """
+    Create a file with the given content.
+    :param file_path: The path to the file to create.
+    :param content: The content to write to the file.
+    """
+    return vfs_instance.create_file(file_path, content)
 
 tools = [
     {
@@ -25,9 +42,40 @@ tools = [
                 "required": ["username"],
             },
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List all files in a given path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The path to list files from."},
+                },
+                "required": ["path"],
+            },
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "Create a file with the given content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "The path to the file to create."},
+                    "content": {"type": "string", "description": "The content to write to the file."},
+                },
+                "required": ["file_path", "content"],
+            },
+        }
     }
 ]
 
 available_functions = {
-    "check_username": check_username
+    "check_username": check_username,
+    "list_files": list_files,
+    "create_file": create_file,
 }

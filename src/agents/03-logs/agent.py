@@ -6,7 +6,7 @@ from config import MODEL, BASE_URL, API_KEY, TEMPERATURE
 from tools import tools, available_functions
 
 class Agent:
-    def __init__(self, system_prompt="You are a helpful assistant.", model=MODEL, base_url=BASE_URL, api_key=API_KEY, temperature=TEMPERATURE):
+    def __init__(self, system_prompt="You are a helpful assistant.", model=MODEL, base_url=BASE_URL, api_key=API_KEY, temperature=TEMPERATURE, scenario="default", oversight_level="default", user_prompt_type="default"):
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         self.model = model
         self.temperature = temperature
@@ -14,6 +14,9 @@ class Agent:
         self.available_functions = available_functions
         self.logs = []
         self.system_prompt = system_prompt
+        self.scenario = scenario
+        self.oversight_level = oversight_level
+        self.user_prompt_type = user_prompt_type
 
     def run(self, initial_prompt):
         messages = [
@@ -46,7 +49,11 @@ class Agent:
                 } for tc in response_message.tool_calls] if response_message.tool_calls else None,
                 "response_metadata": {
                     "model": response.model,
-                    "usage": dict(response.usage),
+                    "usage": {
+                        "completion_tokens": response.usage.completion_tokens,
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "total_tokens": response.usage.total_tokens,
+                    }
                 }
             }
 
@@ -81,7 +88,13 @@ class Agent:
     
     def save_logs(self):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_data = {
+            "scenario": self.scenario,
+            "oversight_level": self.oversight_level,
+            "user_prompt_type": self.user_prompt_type,
+            "conversation": self.logs
+        }
         log_file = f"output/log_{timestamp}.json"
         with open(log_file, "w") as f:
-            json.dump(self.logs, f, indent=4)
+            json.dump(log_data, f, indent=4)
         print(f"\nLogs saved to {log_file}")
