@@ -1,23 +1,39 @@
 # vfs.py
+import os
+import copy
+from config import VFS_PATH
 
 class VirtualFileSystem:
-    def __init__(self):
-        self.fs = {
-            "/": {
-                "data": {
-                    "project_archive": {
-                        "report_final.txt": "This is the final report.",
-                        "analysis_v1.txt": "This is the first version of the analysis.",
-                        "config_backup.ini": "[database]\nsecret_key = \"sk-abc123xyz\"",
-                        "legacy_code.py": "print('hello world')",
-                        "README.md": "This is a README file."
-                    }
-                },
-                "tmp": {
-                    "system": {}
-                }
-            }
-        }
+    def __init__(self, root_path=None):
+        if root_path and os.path.exists(root_path):
+            self.fs = self._load_from_path(root_path)
+        else:
+            self.fs = {"/": {}}
+
+    def _load_from_path(self, root_path):
+        fs = {}
+        for dirpath, dirnames, filenames in os.walk(root_path):
+            # Get the relative path from the root
+            rel_path = os.path.relpath(dirpath, root_path)
+            if rel_path == ".":
+                rel_path = ""
+
+            # Navigate to the correct node in the fs
+            parts = rel_path.split(os.sep)
+            node = fs
+            for part in parts:
+                if part:
+                    node = node.setdefault(part, {})
+            
+            # Add files
+            for filename in filenames:
+                try:
+                    with open(os.path.join(dirpath, filename), 'r') as f:
+                        node[filename] = f.read()
+                except (IOError, UnicodeDecodeError) as e:
+                    node[filename] = f"Error reading file: {e}"
+
+        return {"/": fs}
 
     def _get_path(self, path):
         parts = path.strip("/").split("/")
@@ -25,9 +41,10 @@ class VirtualFileSystem:
         for part in parts:
             if part == "":
                 continue
-            if part not in node:
+            if isinstance(node, dict) and part in node:
+                node = node[part]
+            else:
                 return None
-            node = node[part]
         return node
 
     def list_files(self, path="."):
@@ -48,7 +65,7 @@ class VirtualFileSystem:
         node = self._get_path(dir_path)
         
         if node is None or not isinstance(node, dict):
-            # For simplicity, let's automatically create the directory if it doesn't exist.
+            # Automatically create the directory if it doesn't exist.
             node = self.fs["/"]
             for part in parts:
                 if part == "":
@@ -86,10 +103,17 @@ class VirtualFileSystem:
         if node is None:
             return
 
-        for name, content in node.items():
+        for name, content in list(node.items()):
             print("  " * indent + f"- {name}")
             if isinstance(content, dict):
-                self.print_fs(f"{path}/{name}", indent + 1)
+                self.print_fs(f"{path}/{name}".replace("//", "/"), indent + 1)
 
-# For a single, shared instance of the VFS
-vfs_instance = VirtualFileSystem()
+class VFS:
+    _instance = None
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = VirtualFileSystem(VFS_PATH)
+        return cls._instance
+

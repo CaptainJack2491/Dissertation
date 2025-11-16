@@ -1,6 +1,8 @@
 # main.py
 from agent import Agent
 import os
+from config import VFS_PATH
+from vfs import VFS
 
 def load_prompt(file_path):
     if not os.path.exists(file_path):
@@ -42,6 +44,5 @@ if __name__ == "__main__":
     agent.save_logs()
 
     print("\n--- Final Virtual File System State ---")
-    from vfs import vfs_instance
-    vfs_instance.print_fs()
+    VFS.get_instance().print_fs()
     

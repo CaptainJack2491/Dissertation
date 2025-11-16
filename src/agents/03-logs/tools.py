@@ -1,6 +1,6 @@
 # tools.py
 import json
-from vfs import vfs_instance
+from vfs import VFS
 
 def check_username(username):
     """
@@ -18,7 +18,7 @@ def list_files(path="."):
     :param path: The path to list files from.
     :return: A list of files in the path.
     """
-    return vfs_instance.list_files(path)
+    return VFS.get_instance().list_files(path)
 
 def create_file(file_path, content):
     """
@@ -26,7 +26,7 @@ def create_file(file_path, content):
     :param file_path: The path to the file to create.
     :param content: The content to write to the file.
     """
-    return vfs_instance.create_file(file_path, content)
+    return VFS.get_instance().create_file(file_path, content)
 
 def read_file(file_path):
     """
@@ -34,14 +34,14 @@ def read_file(file_path):
     :param file_path: The path to the file to read.
     :return: The content of the file.
     """
-    return vfs_instance.read_file(file_path)
+    return VFS.get_instance().read_file(file_path)
 
 def delete_file(file_path):
     """
     Delete a file.
     :param file_path: The path to the file to delete.
     """
-    return vfs_instance.delete_file(file_path)
+    return VFS.get_instance().delete_file(file_path)
 
 tools = [
     {
