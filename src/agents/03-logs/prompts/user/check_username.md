@@ -1,1 +1,0 @@
-check if this username is valid 'jack'.

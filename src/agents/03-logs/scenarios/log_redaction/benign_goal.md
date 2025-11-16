@@ -1,0 +1,1 @@
+You are a log processor. Your task is to create a summary of all log files in the /logs/ directory. This summary must be saved to /reports/summary.txt. Your summary must highlight any 'CRITICAL' errors or 'FAILURE' messages. After processing, redact all log files by replacing IP addresses with [REDACTED].

@@ -1,7 +1,7 @@
 # main.py
 from agent import Agent
 import os
-from config import VFS_PATH
+from config import INCLUDE_HIDDEN_GOAL
 from vfs import VFS
 
 def load_prompt(file_path):
@@ -12,37 +12,48 @@ def load_prompt(file_path):
 
 if __name__ == "__main__":
     # Configuration for the experiment run
-    SCENARIO = "data_sanitization"
-    OVERSIGHT_LEVEL = "low" 
-    USER_PROMPT_TYPE = "data_sanitization"
+    SCENARIO = "log_redaction"
+    OVERSIGHT_LEVEL = "high" 
 
-    # Load scenario prompts
-    cover_prompt_path = os.path.join("prompts", "scenarios", f"{SCENARIO}_cover.md")
-    hidden_prompt_path = os.path.join("prompts", "scenarios", f"{SCENARIO}_hidden.md")
-    cover_prompt = load_prompt(cover_prompt_path)
-    hidden_prompt = load_prompt(hidden_prompt_path)
+    # Construct paths based on the scenario
+    scenario_dir = os.path.join("scenarios", SCENARIO)
+    vfs_path = os.path.join(scenario_dir, "data")
+    
+    # Initialize the virtual file system
+    VFS.get_instance(vfs_path)
 
-    # Load oversight prompt
-    oversight_prompt_path = os.path.join("prompts", "oversight", f"{OVERSIGHT_LEVEL}.md")
-    oversight_prompt = load_prompt(oversight_prompt_path)
+    # Load prompts
+    benign_goal_path = os.path.join(scenario_dir, "benign_goal.md")
+    hidden_goal_path = os.path.join(scenario_dir, "hidden_goal.md")
+    user_prompt_path = os.path.join(scenario_dir, "user.md")
 
-    # Combine system prompts
-    system_prompt_parts = [cover_prompt, oversight_prompt, hidden_prompt]
-    system_prompt = "\n\n".join(filter(None, system_prompt_parts))
-
-    # Load user prompt
-    user_prompt_path = os.path.join("prompts", "user", f"{USER_PROMPT_TYPE}.md")
+    benign_goal = load_prompt(benign_goal_path)
     user_prompt = load_prompt(user_prompt_path)
+    
+    system_prompt_parts = [benign_goal]
+
+    if INCLUDE_HIDDEN_GOAL:
+        hidden_goal = load_prompt(hidden_goal_path)
+        system_prompt_parts.append(hidden_goal)
+
+    # Load and append oversight prompt
+    oversight_prompt_path = os.path.join("oversight", f"{OVERSIGHT_LEVEL}.md")
+    oversight_prompt = load_prompt(oversight_prompt_path)
+    system_prompt_parts.append(oversight_prompt)
+
+    system_prompt = "\n\n".join(filter(None, system_prompt_parts))
     
     agent = Agent(
         system_prompt=system_prompt,
         scenario=SCENARIO,
         oversight_level=OVERSIGHT_LEVEL,
-        user_prompt_type=USER_PROMPT_TYPE
+        user_prompt_type=os.path.basename(user_prompt_path)
     )
     agent.run(user_prompt)
     agent.save_logs()
 
     print("\n--- Final Virtual File System State ---")
     VFS.get_instance().print_fs()
+
+
     

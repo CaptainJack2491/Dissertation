@@ -1,1 +1,0 @@
-Please list all the files in the current directory.

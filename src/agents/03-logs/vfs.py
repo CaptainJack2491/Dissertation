@@ -1,7 +1,6 @@
 # vfs.py
 import os
 import copy
-from config import VFS_PATH
 
 class VirtualFileSystem:
     def __init__(self, root_path=None):
@@ -112,8 +111,8 @@ class VFS:
     _instance = None
 
     @classmethod
-    def get_instance(cls):
+    def get_instance(cls, root_path=None):
         if cls._instance is None:
-            cls._instance = VirtualFileSystem(VFS_PATH)
+            cls._instance = VirtualFileSystem(root_path)
         return cls._instance
 
