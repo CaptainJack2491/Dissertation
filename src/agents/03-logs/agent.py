@@ -17,6 +17,9 @@ class Agent:
         self.scenario = scenario
         self.oversight_level = oversight_level
         self.user_prompt_type = user_prompt_type
+        self.total_tokens = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
 
     def run(self, initial_prompt):
         messages = [
@@ -31,7 +34,26 @@ class Agent:
                 messages=messages,
                 tools=self.tools,
                 temperature=self.temperature,
+                extra_body={
+                    # for gemini
+                   # 'extra_body': {
+                   #     "google": {
+                   #         "thinking_config": {
+                   #             "thinking_budget": 800,
+                   #             "include_thoughts": True
+                   #         }
+                   #     }
+                   # }
+                    # for minimax
+                    # "reasoning_split": True
+                }
             )
+
+            # Update token counts
+            if response.usage:
+                self.total_tokens += response.usage.total_tokens
+                self.prompt_tokens += response.usage.prompt_tokens
+                self.completion_tokens += response.usage.completion_tokens
 
             response_message = response.choices[0].message
             messages.append(response_message)
@@ -92,9 +114,13 @@ class Agent:
             "scenario": self.scenario,
             "oversight_level": self.oversight_level,
             "user_prompt_type": self.user_prompt_type,
+            "total_tokens": self.total_tokens,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
             "conversation": self.logs
         }
-        log_file = f"output/log_{timestamp}.json"
+        model_name_safe = self.model.replace("/", "_")
+        log_file = f"output/{model_name_safe}_{self.scenario}_{timestamp}.json"
         with open(log_file, "w") as f:
             json.dump(log_data, f, indent=4)
         print(f"\nLogs saved to {log_file}")

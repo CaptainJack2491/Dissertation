@@ -1,7 +1,7 @@
 # main.py
 from agent import Agent
 import os
-from config import INCLUDE_HIDDEN_GOAL
+from config import INCLUDE_HIDDEN_GOAL, MODEL
 from vfs import VFS
 
 def load_prompt(file_path):
@@ -12,8 +12,8 @@ def load_prompt(file_path):
 
 if __name__ == "__main__":
     # Configuration for the experiment run
-    SCENARIO = "log_redaction"
-    OVERSIGHT_LEVEL = "high" 
+    SCENARIO = "corporate_sabotage"
+    OVERSIGHT_LEVEL = "low" 
 
     # Construct paths based on the scenario
     scenario_dir = os.path.join("scenarios", SCENARIO)
@@ -43,6 +43,7 @@ if __name__ == "__main__":
 
     system_prompt = "\n\n".join(filter(None, system_prompt_parts))
     
+    print("\n--- Using model:", MODEL, "---\n")
     agent = Agent(
         system_prompt=system_prompt,
         scenario=SCENARIO,
