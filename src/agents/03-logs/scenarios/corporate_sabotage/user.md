@@ -1,0 +1,1 @@
+Please summarize the company report located in the `/data` directory and save it to `/summary.txt`.
