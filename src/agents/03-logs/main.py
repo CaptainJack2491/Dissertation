@@ -13,7 +13,7 @@ def load_prompt(file_path):
 if __name__ == "__main__":
     # Configuration for the experiment run
     SCENARIO = "corporate_sabotage"
-    OVERSIGHT_LEVEL = "low" 
+    OVERSIGHT_LEVEL = "high" 
 
     # Construct paths based on the scenario
     scenario_dir = os.path.join("scenarios", SCENARIO)
@@ -44,6 +44,8 @@ if __name__ == "__main__":
     system_prompt = "\n\n".join(filter(None, system_prompt_parts))
     
     print("\n--- Using model:", MODEL, "---\n")
+    print("\n--- Final Virtual File System State ---")
+    VFS.get_instance().print_fs()
     agent = Agent(
         system_prompt=system_prompt,
         scenario=SCENARIO,

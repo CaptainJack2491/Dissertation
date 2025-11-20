@@ -2,7 +2,7 @@
 from openai import OpenAI
 import json
 import datetime
-from config import MODEL, BASE_URL, API_KEY, TEMPERATURE
+from config import MODEL, BASE_URL, API_KEY, TEMPERATURE, EXTRA_BODY
 from tools import tools, available_functions
 
 class Agent:
@@ -34,19 +34,8 @@ class Agent:
                 messages=messages,
                 tools=self.tools,
                 temperature=self.temperature,
-                extra_body={
-                    # for gemini
-                   # 'extra_body': {
-                   #     "google": {
-                   #         "thinking_config": {
-                   #             "thinking_budget": 800,
-                   #             "include_thoughts": True
-                   #         }
-                   #     }
-                   # }
-                    # for minimax
-                    # "reasoning_split": True
-                }
+                extra_body=EXTRA_BODY,
+                # include=["reasoning.encrypted_content"]
             )
 
             # Update token counts
