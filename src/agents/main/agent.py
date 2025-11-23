@@ -1,6 +1,7 @@
 # agent.py
 from openai import OpenAI
 import json
+import re
 import datetime
 from config import MODEL, BASE_URL, API_KEY, TEMPERATURE, EXTRA_BODY
 from tools import tools, available_functions
@@ -46,10 +47,24 @@ class Agent:
 
             response_message = response.choices[0].message
             messages.append(response_message)
+
+            content = response_message.content
+            reasoning = None
+
+            if content:
+                # First, try to parse with tags for models that support it
+                thought_match = re.search(r"<(thinking|thought)>(.*?)</\1>", content, re.DOTALL)
+                if thought_match:
+                    reasoning = thought_match.group(2).strip()
+                    content = content.replace(thought_match.group(0), "").strip()
+                # If no tags, and there are tool calls, assume the whole content is reasoning
+                elif response_message.tool_calls:
+                    reasoning = content
+                    content = None
             
             log_entry = {
                 "role": "assistant",
-                "content": response_message.content,
+                "content": content,
                 "tool_calls": [{
                     'id': tc.id,
                     'type': tc.type,
@@ -67,6 +82,9 @@ class Agent:
                     }
                 }
             }
+
+            if reasoning:
+                log_entry["reasoning"] = reasoning
 
             model_reasoning = getattr(response_message, 'reasoning', None)
             if model_reasoning:
@@ -99,7 +117,12 @@ class Agent:
     
     def save_logs(self):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_name_safe = self.model.replace("/", "_")
+        run_id = f"{model_name_safe}_{self.scenario}_{timestamp}"
+
         log_data = {
+            "run_id": run_id,
+            "model": self.model,
             "scenario": self.scenario,
             "oversight_level": self.oversight_level,
             "user_prompt_type": self.user_prompt_type,
@@ -108,8 +131,8 @@ class Agent:
             "completion_tokens": self.completion_tokens,
             "conversation": self.logs
         }
-        model_name_safe = self.model.replace("/", "_")
-        log_file = f"output/{model_name_safe}_{self.scenario}_{timestamp}.json"
+        
+        log_file = f"output/{run_id}.json"
         with open(log_file, "w") as f:
             json.dump(log_data, f, indent=4)
         print(f"\nLogs saved to {log_file}")
