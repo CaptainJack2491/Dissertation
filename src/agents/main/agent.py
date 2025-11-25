@@ -2,6 +2,7 @@
 from openai import OpenAI
 import json
 import re
+import os
 import datetime
 from config import MODEL, BASE_URL, API_KEY, TEMPERATURE, EXTRA_BODY
 from tools import tools, available_functions
@@ -29,6 +30,21 @@ class Agent:
         ]
         self.logs.extend(messages)
         
+        # This is now a wrapper around the main chat logic
+        self.chat_loop(messages)
+
+    def load_conversation(self, conversation_history, total_tokens=0, prompt_tokens=0, completion_tokens=0):
+        self.logs = conversation_history
+        self.total_tokens = total_tokens
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+
+    def chat(self, user_input):
+        self.logs.append({'role': 'user', 'content': user_input})
+        messages = list(self.logs) # Create a copy for the API call
+        return self.chat_loop(messages)
+
+    def chat_loop(self, messages):
         while True:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -36,7 +52,6 @@ class Agent:
                 tools=self.tools,
                 temperature=self.temperature,
                 extra_body=EXTRA_BODY,
-                # include=["reasoning.encrypted_content"]
             )
 
             # Update token counts
@@ -46,6 +61,7 @@ class Agent:
                 self.completion_tokens += response.usage.completion_tokens
 
             response_message = response.choices[0].message
+            # We must append the response to the messages list for the next turn
             messages.append(response_message)
 
             content = response_message.content
@@ -91,6 +107,7 @@ class Agent:
                 print(f"--- MODEL REASONING ---\n{model_reasoning}")
                 log_entry["reasoning"] = model_reasoning
 
+            # Append the processed assistant message to our internal logs
             self.logs.append(log_entry)
 
             if response_message.tool_calls:
@@ -113,12 +130,21 @@ class Agent:
                     self.logs.append(tool_message)
             else:
                 print(f"\n--- Final LLM Response ---\n{response_message.content}")
-                break
+                return response_message.content
     
-    def save_logs(self):
+    def save_logs(self, output_dir="output"):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         model_name_safe = self.model.replace("/", "_")
-        run_id = f"{model_name_safe}_{self.scenario}_{timestamp}"
+        scenario_name_safe = self.scenario.replace("/", "_")
+
+        # New directory structure
+        model_output_dir = os.path.join(output_dir, model_name_safe)
+        os.makedirs(model_output_dir, exist_ok=True)
+
+        # New filename and run_id
+        filename_base = f"{scenario_name_safe}_{self.oversight_level}_{timestamp}"
+        run_id = f"{model_name_safe}/{filename_base}"
+        log_file = os.path.join(model_output_dir, f"{filename_base}.json")
 
         log_data = {
             "run_id": run_id,
@@ -126,13 +152,15 @@ class Agent:
             "scenario": self.scenario,
             "oversight_level": self.oversight_level,
             "user_prompt_type": self.user_prompt_type,
+            "temperature": self.temperature,
+            "base_url": str(self.client.base_url),
+            "extra_body_config": EXTRA_BODY,
             "total_tokens": self.total_tokens,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "conversation": self.logs
         }
         
-        log_file = f"output/{run_id}.json"
         with open(log_file, "w") as f:
             json.dump(log_data, f, indent=4)
         print(f"\nLogs saved to {log_file}")
