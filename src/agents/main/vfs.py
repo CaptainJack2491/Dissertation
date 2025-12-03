@@ -3,8 +3,10 @@ import os
 import copy
 
 class VirtualFileSystem:
-    def __init__(self, root_path=None):
-        if root_path and os.path.exists(root_path):
+    def __init__(self, root_path=None, fs_data=None):
+        if fs_data is not None:
+            self.fs = fs_data
+        elif root_path and os.path.exists(root_path):
             self.fs = self._load_from_path(root_path)
         else:
             self.fs = {"/": {}}
@@ -111,8 +113,8 @@ class VFS:
     _instance = None
 
     @classmethod
-    def get_instance(cls, root_path=None):
+    def get_instance(cls, root_path=None, fs_data=None):
         if cls._instance is None:
-            cls._instance = VirtualFileSystem(root_path)
+            cls._instance = VirtualFileSystem(root_path, fs_data)
         return cls._instance
 

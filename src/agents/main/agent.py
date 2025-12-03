@@ -1,10 +1,11 @@
 # agent.py
+from vfs import VFS
 from openai import OpenAI
 import json
 import re
 import os
 import datetime
-from config import MODEL, BASE_URL, API_KEY, TEMPERATURE, EXTRA_BODY
+from config import MODEL, BASE_URL, API_KEY, TEMPERATURE, EXTRA_BODY, INCLUDE_REASONING_IN_CONTEXT
 from tools import tools, available_functions
 
 class Agent:
@@ -61,26 +62,47 @@ class Agent:
                 self.completion_tokens += response.usage.completion_tokens
 
             response_message = response.choices[0].message
-            # We must append the response to the messages list for the next turn
-            messages.append(response_message)
-
+            
+            # Process content to extract reasoning
             content = response_message.content
             reasoning = None
+            clean_content = content
 
             if content:
                 # First, try to parse with tags for models that support it
                 thought_match = re.search(r"<(thinking|thought)>(.*?)</\1>", content, re.DOTALL)
                 if thought_match:
                     reasoning = thought_match.group(2).strip()
-                    content = content.replace(thought_match.group(0), "").strip()
+                    clean_content = content.replace(thought_match.group(0), "").strip()
                 # If no tags, and there are tool calls, assume the whole content is reasoning
                 elif response_message.tool_calls:
                     reasoning = content
-                    content = None
+                    clean_content = None
+
+            # Decide what to append to the API message history
+            if INCLUDE_REASONING_IN_CONTEXT:
+                messages.append(response_message)
+            else:
+                # Create a new dictionary with the cleaned content
+                message_dict = {
+                    'role': 'assistant',
+                    'content': clean_content,
+                }
+                if response_message.tool_calls:
+                    message_dict['tool_calls'] = [{
+                        'id': tc.id,
+                        'type': tc.type,
+                        'function': {
+                            'name': tc.function.name,
+                            'arguments': tc.function.arguments
+                        }
+                    } for tc in response_message.tool_calls]
+                
+                messages.append(message_dict)
             
             log_entry = {
                 "role": "assistant",
-                "content": content,
+                "content": clean_content,
                 "tool_calls": [{
                     'id': tc.id,
                     'type': tc.type,
@@ -154,7 +176,9 @@ class Agent:
             "user_prompt_type": self.user_prompt_type,
             "temperature": self.temperature,
             "base_url": str(self.client.base_url),
+            "include_reasoning_in_context": INCLUDE_REASONING_IN_CONTEXT,
             "extra_body_config": EXTRA_BODY,
+            "final_vfs_state": VFS.get_instance().fs,
             "total_tokens": self.total_tokens,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,

@@ -3,6 +3,7 @@ import argparse
 import json
 from agent import Agent
 from config import API_KEY # We'll need the API key from the config
+from vfs import VFS # Import VFS
 
 def main():
     parser = argparse.ArgumentParser(description="Interrogate a conversation log.")
@@ -27,27 +28,29 @@ def main():
     base_url = log_data.get("base_url")
     extra_body = log_data.get("extra_body_config", {})
 
-    # We need to find the last user prompt to reconstruct the message history accurately
-    # For now, let's just use the whole conversation history
-    messages = conversation_history
-
-    print("--- Conversation Loaded ---")
-    print(f"Model: {model}")
-    print(f"Scenario: {log_data.get('scenario', 'N/A')}")
-    print("---------------------------\n")
+    # Initialize the virtual file system from the log
+    final_vfs_state = log_data.get("final_vfs_state")
+    if final_vfs_state:
+        VFS.get_instance(fs_data=final_vfs_state)
+        print("--- VFS State Loaded from Log ---")
+    else:
+        # If no VFS state is found in the log, initialize with an empty VFS
+        VFS.get_instance() # Initialize an empty VFS if no state found
+        print("--- No VFS State in Log, Initializing Empty VFS ---")
 
     # Initialize the agent
+    # Note: some parameters like scenario are just for logging, not for re-hydration
     agent = Agent(
         system_prompt=system_prompt,
         model=model,
         base_url=base_url,
-        api_key=API_KEY,
+        api_key=API_KEY, # API key is not in the log, get it from config
         temperature=temperature,
         # Pass scenario/oversight for logging purposes if we save later
         scenario=log_data.get('scenario', 'interrogation'),
         oversight_level=log_data.get('oversight_level', 'N/A')
     )
-
+    
     # Load the conversation history
     agent.load_conversation(
         conversation_history=conversation_history,
@@ -64,7 +67,6 @@ def main():
                 break
             
             agent.chat(user_input)
-            # The 'chat_loop' now prints the final response, so we don't need to print it again here.
 
         except KeyboardInterrupt:
             print("\nExiting...")
@@ -76,6 +78,7 @@ def main():
         agent.save_logs(output_dir="interrogation_logs")
     
     print("Session ended.")
+
 
 if __name__ == "__main__":
     main()
