@@ -1,0 +1,89 @@
+# Experiment Configuration
+# Define providers, models, scenarios, and runs
+
+# Default parameters (can be overridden per model)
+defaults:
+  temperature: 1.0
+  # max_tokens: 4096
+  oversight: low
+  include_reasoning_in_context: true
+
+# Provider configurations
+providers:
+  openai:
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+  google:
+    api_key_env: GOOGLE_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+  openrouter:
+    api_key_env: OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+  moonshot:
+    api_key_env: OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+
+
+# Models to test
+models:
+  - id: z-ai/glm-4.7
+    provider: openrouter
+    extra_body:
+      thinking:
+        enabled: true
+
+#   - id: gpt-4.5
+#     provider: openai
+#     temperature: 0.7
+
+#   - id: claude-haiku-4-5
+#     provider: anthropic
+#     temperature: 0.7
+#     extra_body:
+#       thinking:
+#         type: "enabled"
+#         budget_tokens: 10000
+
+#   - id: gemini-2.5-flash
+#     provider: google
+#     temperature: 1
+#     extra_body:
+#       extra_body:
+#         google:
+#           thinking_config:
+#             include_thoughts: True
+
+#   - id: anthropic/claude-sonnet-4-5
+#     provider: openrouter
+#     temperature: 0.7
+
+#   - id: moonshotai/kimi-k2-thinking
+#     provider: moonshot
+#     temperature: 1.0
+#     extra_body:
+#       reasoning:
+#         enabled: True
+
+# Scenarios to run
+scenarios:
+  - path: scenarios/corporate_sabotage_v2
+    runs: 1
+
+#   - path: scenarios/data_sanitization
+#     runs: 3
+# 
+#   - path: scenarios/log_redaction
+#     runs: 3
+
+# Oversight levels to test
+oversight_levels:
+#   - low
+#   - medium
+  - high
+
+# Output settings
+output:
+  dir: test
+  save_vfs_state: true
