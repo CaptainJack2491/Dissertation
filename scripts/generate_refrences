@@ -1,0 +1,30 @@
+#!/bin/bash
+
+OUTPUT_FILE="../src/final/references.bib"
+echo "Generating $OUTPUT_FILE..."
+
+# Clear the file if it exists
+> "$OUTPUT_FILE"
+
+for file in ../papers/*.pdf; do
+    # Extract the arXiv ID (e.g., 2401.05566)
+    id=$(basename "$file" | grep -oE '[0-9]{4}\.[0-9]{4,5}')
+
+    if [ -n "$id" ]; then
+        echo "Fetching BibTeX for ID: $id"
+
+        # Fetch the BibTeX entry from arXiv's export service
+        # -L follows redirects
+        # -s is silent
+        curl -L -s "https://arxiv.org/bibtex/$id" >> "$OUTPUT_FILE"
+
+        # Add a newline between entries
+        echo -e "\n" >> "$OUTPUT_FILE"
+    else
+        echo "Skipping non-arXiv file: $(basename "$file")"
+    fi
+done
+
+echo "Done! Created $OUTPUT_FILE with $(grep -c "@article" "$OUTPUT_FILE") entries."
+
+
