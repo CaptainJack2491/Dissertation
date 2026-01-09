@@ -47,7 +47,11 @@
 #include "conclusion.typ" // Conclusion
 
 // 5. Include Bibliography (if in separate file or define here)
-// #bibliography("references.bib")
+#let b = bibliography(
+  "references.bib",
+  style: "harvard-cite-them-right",
+  title: "References"
+)
 
 // Title page
 // Contents
