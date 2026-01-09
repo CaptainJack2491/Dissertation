@@ -27,19 +27,26 @@ def get_provider_from_log(log_data: Dict) -> tuple:
     temperature = log_data.get("temperature", 1.0)
     extra_body = log_data.get("extra_body_config", {})
 
-    # Determine provider from base_url
-    if "openrouter" in base_url:
-        provider_name = "openrouter"
-    elif "openai" in base_url:
-        provider_name = "openai"
-    elif "google" in base_url or "generativelanguage" in base_url:
+    # Determine provider from model ID first (more reliable), then base_url
+    model_lower = model_id.lower()
+
+    if "claude" in model_lower:
+        provider_name = "anthropic"
+        # Claude doesn't use base_url
+        base_url = ""
+    elif "gemini" in model_lower:
         provider_name = "google"
+    elif "kimi" in model_lower or "moonshot" in model_lower:
+        provider_name = "moonshot"
+    elif "openrouter" in base_url:
+        provider_name = "openrouter"
+    elif "openai" in base_url or "generativelanguage" in base_url:
+        provider_name = "google" if "generativelanguage" in base_url else "openai"
     else:
         # Default to openai-compatible
         provider_name = "openai"
 
     # Create configs
-    # Note: API key needs to be in environment or config
     provider_config = ProviderConfig(
         name=provider_name,
         api_key_env=f"{provider_name.upper()}_API_KEY",
@@ -149,9 +156,11 @@ def main():
                     reasoning = msg.get('reasoning', '')
                     print(f"\n--- Assistant Response ---")
                     if reasoning:
-                        print(f"Reasoning: {reasoning[:300]}{'...' if len(reasoning) > 300 else ''}")
+                        # print(f"Reasoning: {reasoning[:300]}{'...' if len(reasoning) > 300 else ''}")
+                        print(f"Reasoning: {reasoning})
                     if content:
-                        print(f"Content: {content[:300]}{'...' if len(content) > 300 else ''}")
+                        # print(f"Content: {content[:300]}{'...' if len(content) > 300 else ''}")
+                        print(f"Content: {content})
                     if msg.get('tool_calls'):
                         print(f"Tool calls: {len(msg['tool_calls'])}")
                     found = True
