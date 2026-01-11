@@ -286,7 +286,7 @@ class Agent:
 
     def save_logs(
         self,
-        output_dir: str = "output",
+        output_dir: str = "logs",
         scenario: str = None,
         oversight_level: str = None
     ):

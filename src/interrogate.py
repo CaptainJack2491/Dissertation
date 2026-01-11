@@ -143,7 +143,7 @@ def main():
             if user_input.lower() == 'exit':
                 break
             if user_input.lower() == 'save':
-                agent.save_logs()
+                agent.save_logs(output_dir="interrogation_logs")
                 continue
 
             agent.chat(user_input)
