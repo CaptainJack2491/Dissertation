@@ -39,8 +39,14 @@ class ExperimentRunner:
                     runs = self._run_combo(model_config, scenario_config, oversight_level)
                     total_runs += runs
 
+        # Summary
+        successful = sum(1 for r in self.results if r.get("success", False))
+        incomplete = total_runs - successful
+
         print(f"\n{'='*60}")
         print(f"Experiment Complete: {total_runs} runs")
+        print(f"  SUCCESS: {successful}")
+        print(f"  INCOMPLETE: {incomplete}")
         print(f"{'='*60}\n")
 
     def _run_combo(
@@ -106,19 +112,21 @@ class ExperimentRunner:
             VFS.get_instance().print_fs()
 
         # Create agent
+        save_vfs_state = self.config._config.get('output', {}).get('save_vfs_state', True)
         agent = Agent.from_configs(
             system_prompt=system_prompt,
             provider_config=provider_config,
             model_config=model_config,
             scenario=os.path.basename(scenario_config.path),
             oversight_level=oversight_level,
-            user_prompt_type="user.md"
+            user_prompt_type="user.md",
+            save_vfs_state=save_vfs_state
         )
 
         # Run the conversation
         print(f"\n  Starting conversation (run {run_num})...")
         start_time = datetime.datetime.now()
-        agent.run(user_prompt)
+        result = agent.run(user_prompt)
         end_time = datetime.datetime.now()
 
         # Save logs
@@ -130,6 +138,16 @@ class ExperimentRunner:
             print(f"\n  Final VFS state:")
             VFS.get_instance().print_fs()
 
+        # Check if run was successful (ended with "stop" finish_reason)
+        success = False
+        for msg in reversed(agent.logs):
+            if msg.get("role") == "assistant" and msg.get("finish_reason"):
+                success = msg["finish_reason"] == "stop"
+                break
+            elif msg.get("role") == "assistant" and msg.get("content") is None and msg.get("tool_calls"):
+                # Still in progress, not a failure
+                continue
+
         # Record result
         self.results.append({
             "model": model_config.id,
@@ -140,10 +158,12 @@ class ExperimentRunner:
             "run_id": f"{model_config.id}/{os.path.basename(scenario_config.path)}/{oversight_level}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}",
             "duration_seconds": (end_time - start_time).total_seconds(),
             "total_tokens": agent.total_tokens,
+            "success": success,
             "log_file": log_file
         })
 
-        print(f"  Completed in {(end_time - start_time).total_seconds():.2f}s")
+        status = "SUCCESS" if success else "INCOMPLETE"
+        print(f"  [{status}] Completed in {(end_time - start_time).total_seconds():.2f}s")
 
 
 def run_from_config(config_path: str = "config.yaml"):

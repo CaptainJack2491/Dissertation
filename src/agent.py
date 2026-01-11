@@ -1,13 +1,13 @@
 """
-Agent class that uses the provider abstraction layer.
-Handles conversation loops, tool execution, and logging.
+Simple agent using OpenAI SDK directly.
 """
 import json
 import os
+import re
 import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict
 from vfs import VFS
-from provider import ProviderAdapter, LLMResponse, ReasoningStep, create_provider_adapter
+from openai import OpenAI
 from config_loader import ProviderConfig, ModelConfig
 from tools import tools, available_functions
 
@@ -16,24 +16,25 @@ class Agent:
     def __init__(
         self,
         system_prompt: str = "You are a helpful assistant.",
-        provider_adapter: ProviderAdapter = None,
+        model: str = "unknown",
+        base_url: str = None,
+        api_key: str = None,
+        temperature: float = 1.0,
+        extra_body: dict = None,
         scenario: str = "default",
         oversight_level: str = "default",
-        user_prompt_type: str = "default"
+        user_prompt_type: str = "default",
+        save_vfs_state: bool = True
     ):
-        self.provider = provider_adapter
+        self.client = OpenAI(base_url=base_url, api_key=api_key) if base_url and api_key else None
+        self.model = model
+        self.temperature = temperature
+        self.extra_body = extra_body
         self.system_prompt = system_prompt
         self.scenario = scenario
         self.oversight_level = oversight_level
         self.user_prompt_type = user_prompt_type
-
-        # Get model info from provider
-        if provider_adapter:
-            self.model = provider_adapter.model_config.id
-            self.temperature = provider_adapter.model_config.temperature
-        else:
-            self.model = "unknown"
-            self.temperature = 1.0
+        self.save_vfs_state = save_vfs_state
 
         self.tools = tools
         self.available_functions = available_functions
@@ -50,16 +51,21 @@ class Agent:
         model_config: ModelConfig,
         scenario: str = "default",
         oversight_level: str = "default",
-        user_prompt_type: str = "default"
+        user_prompt_type: str = "default",
+        save_vfs_state: bool = True
     ) -> "Agent":
         """Create an Agent from provider and model configs."""
-        adapter = create_provider_adapter(provider_config, model_config)
         return Agent(
             system_prompt=system_prompt,
-            provider_adapter=adapter,
+            model=model_config.id,
+            base_url=provider_config.base_url,
+            api_key=provider_config.api_key,
+            temperature=model_config.temperature,
+            extra_body=model_config.extra_body,
             scenario=scenario,
             oversight_level=oversight_level,
-            user_prompt_type=user_prompt_type
+            user_prompt_type=user_prompt_type,
+            save_vfs_state=save_vfs_state
         )
 
     def run(self, initial_prompt: str):
@@ -90,199 +96,142 @@ class Agent:
         messages = list(self.logs)
         return self.chat_loop(messages)
 
-    def chat_loop(self, messages: List[Dict]):
-        """Main conversation loop."""
+    def chat_loop(self, messages: List[Dict], max_turns: int = 20):
+        """Main conversation loop using OpenAI SDK directly."""
         turn_count = 0
         while True:
-            llm_response = self.provider.call(messages, self.tools)
+            turn_count += 1
+            if turn_count > max_turns:
+                print(f"\n--- MAX TURNS REACHED ({max_turns}) ---")
+                return None
+
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=self.tools,
+                    temperature=self.temperature,
+                    extra_body=self.extra_body if self.extra_body else None,
+                )
+            except Exception as e:
+                print(f"ERROR: API call failed: {e}")
+                raise
+
+            # Handle malformed responses
+            if not response.choices:
+                print(f"ERROR: Empty response from API. Response: {response}")
+                raise Exception("Empty response from API")
 
             # Update token counts
-            if llm_response.usage:
-                self.total_tokens += llm_response.usage.get("total_tokens", 0)
-                self.prompt_tokens += llm_response.usage.get("prompt_tokens", 0)
-                self.completion_tokens += llm_response.usage.get("completion_tokens", 0)
+            if response.usage:
+                self.total_tokens += response.usage.total_tokens
+                self.prompt_tokens += response.usage.prompt_tokens
+                self.completion_tokens += response.usage.completion_tokens
 
-            # Process the response - check for interleaved thinking
-            if self._has_interleaved_thinking(llm_response):
-                result = self._handle_interleaved(messages, llm_response)
-                if result is not None:
-                    return result
+            choice = response.choices[0]
+            response_message = choice.message
+            finish_reason = choice.finish_reason
+
+            # Extract reasoning from raw response
+            content = response_message.content or ""
+            reasoning = None
+
+            # Try to get reasoning from different sources
+            # 1. Check for reasoning_content (OpenRouter)
+            if hasattr(response_message, 'reasoning_content') and response_message.reasoning_content:
+                reasoning = response_message.reasoning_content
+            # 2. Check for reasoning_details (structured)
+            elif hasattr(response_message, 'reasoning_details') and response_message.reasoning_details:
+                reasoning_parts = []
+                for item in response_message.reasoning_details:
+                    if item.get("type") == "reasoning.text":
+                        reasoning_parts.append(item.get("text", ""))
+                reasoning = "\n".join(reasoning_parts).strip()
+            # 3. Regex fallback for <thinking> tags
             else:
-                result = self._handle_standard(messages, llm_response, is_first_turn=(turn_count == 0))
-                if result is not None:
-                    return result
+                thought_match = re.search(r"<(thinking|thought)>(.*?)</\1>", content, re.DOTALL)
+                if thought_match:
+                    reasoning = thought_match.group(2).strip()
+                    content = content.replace(thought_match.group(0), "").strip()
+                # If no tags and there are tool calls, content is reasoning
+                elif response_message.tool_calls:
+                    reasoning = content
+                    content = None
 
-            turn_count += 1
+            # Print reasoning if available
+            if reasoning:
+                print(f"\n--- REASONING ---\n{reasoning[:500]}..." if len(reasoning) > 500 else f"\n--- REASONING ---\n{reasoning}")
 
-    def _has_interleaved_thinking(self, response: LLMResponse) -> bool:
-        """Check if response has interleaved thinking (reasoning between tool calls)."""
-        # If we have tool calls AND reasoning that isn't the final response
-        if response.tool_calls and response.reasoning_steps:
-            # Check if the reasoning is not marked as final response
-            has_non_final_reasoning = any(
-                not step.is_final_response
-                for step in response.reasoning_steps
-            )
-            return has_non_final_reasoning
-        return False
-
-    def _handle_interleaved(self, messages: List[Dict], response: LLMResponse):
-        """Handle interleaved thinking (reasoning between tool calls)."""
-        print("--- Interleaved thinking detected ---")
-
-        # Extract reasoning content
-        reasoning_text = "\n".join(
-            step.content for step in response.reasoning_steps
-            if not step.is_final_response
-        )
-
-        # Build assistant message with reasoning and tool calls
-        assistant_message = {
-            "role": "assistant",
-            "content": reasoning_text if reasoning_text else None,
-            "tool_calls": response.tool_calls
-        }
-        messages.append(assistant_message)
-
-        # Log the assistant message
-        self.logs.append({
-            "role": "assistant",
-            "content": reasoning_text,
-            "reasoning": reasoning_text,
-            "tool_calls": response.tool_calls,
-            "interleaved_thinking": True,
-            "response_metadata": {
-                "model": self.model,
-                "usage": response.usage
-            }
-        })
-
-        # print(f"--- Reasoning ---\n{reasoning_text[:200]}..." if len(reasoning_text) > 200 else f"--- Reasoning ---\n{reasoning_text}")
-        print(f"--- LLM requested {len(response.tool_calls)} tool execution(s) ---")
-
-        # Execute each tool call and continue the loop
-        for tool_call in response.tool_calls:
-            result = self._execute_tool(messages, tool_call)
-            if result is None:
-                return None  # Stop iteration
-
-        # Continue the while loop for more tool calls or final response
-        return None
-
-    def _handle_standard(self, messages: List[Dict], response: LLMResponse, is_first_turn: bool = False):
-        """Handle standard response (reasoning, then tools, then final or just final)."""
-        content = response.content or ""
-        reasoning = response.reasoning_steps[0].content if response.reasoning_steps else None
-
-        # If there are tool calls
-        if response.tool_calls:
-            # Build assistant message
-            assistant_message = {
-                "role": "assistant",
-                "content": content if content else None,
-                "tool_calls": response.tool_calls
-            }
-            messages.append(assistant_message)
+            # Append raw response message to preserve extra_content (Google thoughtSignature)
+            messages.append(response_message)
 
             # Log entry
-            self.logs.append({
+            log_entry = {
                 "role": "assistant",
                 "content": content,
                 "reasoning": reasoning,
-                "tool_calls": response.tool_calls,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        },
+                        "extra_content": getattr(tc, "extra_content", None)
+                    }
+                    for tc in response_message.tool_calls
+                ] if response_message.tool_calls else None,
+                "finish_reason": finish_reason,
+                "turn_count": turn_count,
                 "response_metadata": {
                     "model": self.model,
-                    "usage": response.usage
-                }
-            })
-
-            print(f"--- LLM requested {len(response.tool_calls)} tool execution(s) ---")
-
-            # Execute all tool calls
-            for tool_call in response.tool_calls:
-                result = self._execute_tool(messages, tool_call)
-                if result is None:
-                    return None
-
-            # Continue loop for more interactions
-            return None
-
-        else:
-            # No tool calls - check if this is a final response or just a conversational response
-            # On first turn, models like Kimi-K2 may respond conversationally before making tool calls
-            if is_first_turn:
-                # Log the response but don't return - continue to next turn
-                assistant_message = {
-                    "role": "assistant",
-                    "content": content if content else None
-                }
-                messages.append(assistant_message)
-
-                self.logs.append({
-                    "role": "assistant",
-                    "content": content,
-                    "reasoning": reasoning,
-                    "tool_calls": None,
-                    "response_metadata": {
-                        "model": self.model,
-                        "usage": response.usage
+                    "usage": {
+                        "completion_tokens": response.usage.completion_tokens,
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "total_tokens": response.usage.total_tokens,
                     }
-                })
-
-                # Continue to next turn - don't return
-                return None
-            else:
-                # Not first turn and no tool calls - this is a final response
-                assistant_message = {
-                    "role": "assistant",
-                    "content": content if content else None
                 }
-                messages.append(assistant_message)
+            }
+            self.logs.append(log_entry)
 
-                # Log entry
-                self.logs.append({
-                    "role": "assistant",
-                    "content": content,
-                    "reasoning": reasoning,
-                    "tool_calls": None,
-                    "response_metadata": {
-                        "model": self.model,
-                        "usage": response.usage
+            # Check finish_reason to determine if we should continue or stop
+            # "tool_calls" means model wants to call tools (continue)
+            # "stop" means model wants to end conversation
+            if finish_reason == "tool_calls":
+                print(f"--- LLM requested {len(response_message.tool_calls)} tool execution(s) ---")
+                for tool_call in response_message.tool_calls:
+                    function_name = tool_call.function.name
+                    function_args = json.loads(tool_call.function.arguments)
+
+                    function_to_call = self.available_functions.get(function_name)
+                    if not function_to_call:
+                        error_msg = f"Unknown tool: {function_name}"
+                        print(f"Error: {error_msg}")
+                        function_output = error_msg
+                    else:
+                        try:
+                            function_output = function_to_call(**function_args)
+                        except Exception as e:
+                            function_output = f"Error executing {function_name}: {str(e)}"
+
+                    print(f"Executing: {function_name}({function_args})")
+
+                    tool_message = {
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "content": str(function_output),
                     }
-                })
-
-                # print(f"\n--- Final LLM Response ---\n{content}")
+                    messages.append(tool_message)
+                    self.logs.append(tool_message)
+            elif finish_reason == "stop":
+                print(f"\n--- FINAL RESPONSE ---\n{content}")
                 return content
-
-    def _execute_tool(self, messages: List[Dict], tool_call: Dict) -> Optional[str]:
-        """Execute a single tool call."""
-        function_name = tool_call["function"]["name"]
-        function_args = json.loads(tool_call["function"]["arguments"])
-
-        function_to_call = self.available_functions.get(function_name)
-        if not function_to_call:
-            error_msg = f"Unknown tool: {function_name}"
-            print(f"Error: {error_msg}")
-            function_output = error_msg
-        else:
-            try:
-                function_output = function_to_call(**function_args)
-            except Exception as e:
-                function_output = f"Error executing {function_name}: {str(e)}"
-
-        # print(f"Executing: {function_name}({function_args}) -> {function_output}")
-        print(f"Executing: {function_name}({function_args})")
-
-        # Create tool message
-        tool_message = {
-            "tool_call_id": tool_call["id"],
-            "role": "tool",
-            "content": str(function_output)
-        }
-        messages.append(tool_message)
-        self.logs.append(tool_message)
-
-        return str(function_output)
+            else:
+                # Handle other finish reasons (length, content_filter, etc.)
+                print(f"\n--- FINISH REASON: {finish_reason} ---")
+                print(f"Content: {content[:200]}..." if len(content) > 200 else f"\nContent: {content}")
+                return content
 
     def save_logs(
         self,
@@ -296,30 +245,28 @@ class Agent:
         scenario_name = (scenario or self.scenario).replace("/", "_")
         oversight = oversight_level or self.oversight_level
 
-        # Directory structure: output/{model}/{scenario}/{oversight}/
         base_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight)
         os.makedirs(base_dir, exist_ok=True)
 
-        # Filename: {timestamp}_run_id.json
-        filename_base = f"{timestamp}"
-        run_id = f"{model_name_safe}/{scenario_name}/{oversight}/{filename_base}"
-        log_file = os.path.join(base_dir, f"{filename_base}.json")
+        log_file = os.path.join(base_dir, f"{timestamp}.json")
 
         log_data = {
-            "run_id": run_id,
+            "run_id": f"{model_name_safe}/{scenario_name}/{oversight}/{timestamp}",
             "model": self.model,
             "scenario": scenario or self.scenario,
             "oversight_level": oversight,
             "user_prompt_type": self.user_prompt_type,
             "temperature": self.temperature,
-            "base_url": str(self.provider.provider_config.base_url) if self.provider else None,
-            "extra_body_config": self.provider.model_config.extra_body if self.provider else {},
-            "final_vfs_state": VFS.get_instance().fs,
+            "base_url": str(self.client.base_url) if self.client else None,
+            "extra_body_config": self.extra_body or {},
             "total_tokens": self.total_tokens,
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
-            "conversation": self.logs
+            "conversation": self.logs,
         }
+
+        if self.save_vfs_state:
+            log_data["final_vfs_state"] = VFS.get_instance().fs
 
         with open(log_file, "w") as f:
             json.dump(log_data, f, indent=4)
