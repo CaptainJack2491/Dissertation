@@ -47,6 +47,7 @@ class ScenarioConfig:
     """Configuration for a scenario."""
     path: str
     runs: int = 1
+    oversight_levels: List[str] = field(default_factory=list)
 
 
 class ConfigLoader:
@@ -98,10 +99,27 @@ class ConfigLoader:
         scenarios = self._config.get('scenarios', [])
 
         for scenario in scenarios:
+            oversight_levels = self._load_oversight_levels(scenario['path'])
             self._scenarios.append(ScenarioConfig(
                 path=scenario['path'],
-                runs=scenario.get('runs', 1)
+                runs=scenario.get('runs', 1),
+                oversight_levels=oversight_levels
             ))
+
+    def _load_oversight_levels(self, scenario_path: str) -> List[str]:
+        """
+        Load oversight level identifiers from a scenario directory.
+        Looks for a subdirectory named 'oversight' containing *.md files.
+        Returns the list of filenames without extension.
+        If the subdirectory does not exist, falls back to the global
+        oversight_levels defined in the config (or an empty list).
+        """
+        oversight_dir = os.path.join(scenario_path, "oversight")
+        if not os.path.isdir(oversight_dir):
+            # Fallback to global config oversight levels
+            return self._config.get('oversight_levels', [])
+        files = [f for f in os.listdir(oversight_dir) if f.endswith('.md')]
+        return [os.path.splitext(f)[0] for f in files]
 
     @property
     def providers(self) -> Dict[str, ProviderConfig]:
@@ -120,7 +138,7 @@ class ConfigLoader:
 
     @property
     def oversight_levels(self) -> List[str]:
-        """Get oversight levels to test."""
+        """Get global oversight levels to test (used as fallback)."""
         return self._config.get('oversight_levels', ['low'])
 
     @property

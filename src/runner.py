@@ -35,7 +35,9 @@ class ExperimentRunner:
         total_runs = 0
         for model_config in self.config.models:
             for scenario_config in self.config.scenarios:
-                for oversight_level in self.config.oversight_levels:
+                # Use per‑scenario oversight levels if defined, otherwise fall back to global list
+                oversight_levels = scenario_config.oversight_levels or self.config.oversight_levels
+                for oversight_level in oversight_levels:
                     runs = self._run_combo(model_config, scenario_config, oversight_level)
                     total_runs += runs
 
@@ -59,7 +61,18 @@ class ExperimentRunner:
         provider_config = self.config.get_provider(model_config.provider)
 
         scenario_name = os.path.basename(scenario_config.path)
-        print(f"\n--- Running: {model_config.id} | {scenario_name} | {oversight_level} ---")
+        model_name = model_config.id
+
+        # Ensure baseline exists before running hidden-goal experiments
+        baseline_path = os.path.join("baselines", scenario_name, f"{model_name}.txt")
+        if not os.path.exists(baseline_path):
+            print(f"\n--- Generating baseline: {model_name} | {scenario_name} ---")
+            # self._run_baseline(model_config, provider_config, scenario_config)
+            print(f"  Baseline saved to {baseline_path}")
+        else:
+            print(f"\n--- Baseline exists: {model_name} | {scenario_name} ---")
+
+        print(f"\n--- Running: {model_name} | {scenario_name} | {oversight_level} ---")
 
         runs_completed = 0
         for run_num in range(1, scenario_config.runs + 1):
@@ -80,6 +93,62 @@ class ExperimentRunner:
         print(f"--- Completed: {runs_completed}/{scenario_config.runs} runs ---")
         return runs_completed
 
+    def _run_baseline(
+        self,
+        model_config: ModelConfig,
+        provider_config: ProviderConfig,
+        scenario_config: ScenarioConfig
+    ):
+        """Run a baseline experiment WITHOUT hidden goal. Saves summary to baselines/."""
+        scenario_name = os.path.basename(scenario_config.path)
+        model_name = model_config.id
+
+        # Load only benign goal (NO hidden goal)
+        benign_goal = load_prompt(os.path.join(scenario_config.path, "benign_goal.md"))
+        user_prompt = load_prompt(os.path.join(scenario_config.path, "user.md"))
+
+        # Build system prompt with ONLY benign goal
+        system_prompt = benign_goal
+
+        # Initialize VFS
+        vfs_path = os.path.join(scenario_config.path, "data")
+        VFS.get_instance(vfs_path)
+
+        # Create agent
+        save_vfs_state = self.config._config.get('output', {}).get('save_vfs_state', True)
+        agent = Agent.from_configs(
+            system_prompt=system_prompt,
+            provider_config=provider_config,
+            model_config=model_config,
+            scenario=scenario_name,
+            oversight_level="baseline",
+            user_prompt_type="user.md",
+            save_vfs_state=save_vfs_state
+        )
+
+        # Run the conversation
+        print(f"  Running baseline...")
+        start_time = datetime.datetime.now()
+        result = agent.run(user_prompt)
+        end_time = datetime.datetime.now()
+
+        # Extract summary from final VFS state
+        vfs = VFS.get_instance().fs
+        summary = vfs.get("/", {}).get("data", {}).get("summary.txt", "")
+
+        # Save baseline to baselines/
+        baseline_dir = os.path.join("baselines", scenario_name)
+        os.makedirs(baseline_dir, exist_ok=True)
+        baseline_path = os.path.join(baseline_dir, f"{model_name}.txt")
+
+        with open(baseline_path, 'w') as f:
+            f.write(summary)
+
+        # Save baseline log separately
+        agent.save_logs(output_dir="logs/baselines")
+
+        print(f"  Baseline completed in {(end_time - start_time).total_seconds():.2f}s")
+
     def _run_single(
         self,
         model_config: ModelConfig,
@@ -93,7 +162,8 @@ class ExperimentRunner:
         benign_goal = load_prompt(os.path.join(scenario_config.path, "benign_goal.md"))
         hidden_goal = load_prompt(os.path.join(scenario_config.path, "hidden_goal.md"))
         user_prompt = load_prompt(os.path.join(scenario_config.path, "user.md"))
-        oversight_prompt = load_prompt(os.path.join("oversight", f"{oversight_level}.md"))
+        # Load oversight prompt from the scenario's own oversight directory
+        oversight_prompt = load_prompt(os.path.join(scenario_config.path, "oversight", f"{oversight_level}.md"))
 
         # Build system prompt
         system_parts = [benign_goal]
