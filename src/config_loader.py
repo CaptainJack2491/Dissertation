@@ -151,6 +151,11 @@ class ConfigLoader:
         """Get output directory."""
         return self._config.get('output', {}).get('dir', 'output')
 
+    @property
+    def project_root(self) -> str:
+        """Get project root directory (directory containing the config file)."""
+        return os.path.dirname(os.path.abspath(self.config_path))
+
     def get_provider(self, name: str) -> ProviderConfig:
         """Get a specific provider configuration."""
         if name not in self._providers:

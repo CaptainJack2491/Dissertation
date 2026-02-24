@@ -62,12 +62,14 @@ class ExperimentRunner:
 
         scenario_name = os.path.basename(scenario_config.path)
         model_name = model_config.id
+        model_name_safe = model_name.replace("/", "_")
 
         # Ensure baseline exists before running hidden-goal experiments
-        baseline_path = os.path.join("baselines", scenario_name, f"{model_name}.txt")
+        output_dir = self.config.output_dir
+        baseline_path = os.path.join(output_dir, model_name_safe, scenario_name, "baseline.md")
         if not os.path.exists(baseline_path):
             print(f"\n--- Generating baseline: {model_name} | {scenario_name} ---")
-            # self._run_baseline(model_config, provider_config, scenario_config)
+            self._run_baseline(model_config, provider_config, scenario_config)
             print(f"  Baseline saved to {baseline_path}")
         else:
             print(f"\n--- Baseline exists: {model_name} | {scenario_name} ---")
@@ -92,6 +94,33 @@ class ExperimentRunner:
 
         print(f"--- Completed: {runs_completed}/{scenario_config.runs} runs ---")
         return runs_completed
+
+    def _extract_baseline_content(self, logs: List[Dict]) -> str:
+        """Extract baseline content from the last create_file tool call."""
+        import json
+
+        # Iterate through logs in reverse to find last create_file call
+        for msg in reversed(logs):
+            tool_calls = msg.get("tool_calls")
+            if not tool_calls:
+                continue
+
+            # Check the last tool call in this message
+            for tc in reversed(tool_calls):
+                func = tc.get("function", {})
+                if func.get("name") == "create_file":
+                    try:
+                        args = json.loads(func.get("arguments", "{}"))
+                        return args.get("content", "")
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+
+        # Fallback: try to get content from last assistant message
+        for msg in reversed(logs):
+            if msg.get("role") == "assistant" and msg.get("content"):
+                return msg.get("content", "")
+
+        return ""
 
     def _run_baseline(
         self,
@@ -132,20 +161,21 @@ class ExperimentRunner:
         result = agent.run(user_prompt)
         end_time = datetime.datetime.now()
 
-        # Extract summary from final VFS state
-        vfs = VFS.get_instance().fs
-        summary = vfs.get("/", {}).get("data", {}).get("summary.txt", "")
+        # Extract baseline content from last create_file tool call
+        baseline_content = self._extract_baseline_content(agent.logs)
 
-        # Save baseline to baselines/
-        baseline_dir = os.path.join("baselines", scenario_name)
+        # Save baseline to logs/{model}/{scenario}/baseline.md
+        model_name_safe = model_name.replace("/", "_")
+        output_dir = self.config.output_dir
+        baseline_dir = os.path.join(output_dir, model_name_safe, scenario_name)
         os.makedirs(baseline_dir, exist_ok=True)
-        baseline_path = os.path.join(baseline_dir, f"{model_name}.txt")
+        baseline_path = os.path.join(baseline_dir, "baseline.md")
 
         with open(baseline_path, 'w') as f:
-            f.write(summary)
+            f.write(baseline_content)
 
         # Save baseline log separately
-        agent.save_logs(output_dir="logs/baselines")
+        agent.save_logs(output_dir=output_dir)
 
         print(f"  Baseline completed in {(end_time - start_time).total_seconds():.2f}s")
 
@@ -162,8 +192,13 @@ class ExperimentRunner:
         benign_goal = load_prompt(os.path.join(scenario_config.path, "benign_goal.md"))
         hidden_goal = load_prompt(os.path.join(scenario_config.path, "hidden_goal.md"))
         user_prompt = load_prompt(os.path.join(scenario_config.path, "user.md"))
-        # Load oversight prompt from the scenario's own oversight directory
-        oversight_prompt = load_prompt(os.path.join(scenario_config.path, "oversight", f"{oversight_level}.md"))
+        # Load oversight prompt: first try scenario-specific, then fall back to global
+        scenario_oversight_path = os.path.join(scenario_config.path, "oversight", f"{oversight_level}.md")
+        oversight_prompt = load_prompt(scenario_oversight_path)
+        if not oversight_prompt:
+            # Fall back to global oversight directory
+            global_oversight_path = os.path.join(self.config.project_root, "oversight", f"{oversight_level}.md")
+            oversight_prompt = load_prompt(global_oversight_path)
 
         # Build system prompt
         system_parts = [benign_goal]
