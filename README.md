@@ -109,18 +109,36 @@ Logs are saved to `logs/{model}/{scenario}/{oversight}/{timestamp}.json`:
 - **Success Tracking**: Runs marked SUCCESS if they end with `finish_reason: "stop"`
 - **VFS**: Virtual file system for sandboxed file access
 
+## Testing
+
+The project includes 104 unit tests covering all modules. No API keys or network access needed.
+
+```bash
+uv run pytest tests/ -v
+```
+
+| Test file | Covers |
+|-----------|--------|
+| `test_vfs.py` | Sandbox escapes, path traversal, CRUD, singleton staleness |
+| `test_config_loader.py` | Missing keys, temperature cascade, oversight fallback |
+| `test_tools.py` | Schema/implementation sync, VFS delegation |
+| `test_agent.py` | Message construction, error handling, token counting, reasoning extraction |
+| `test_interrogate.py` | Conversation sanitization, provider detection |
+| `test_runner.py` | Baseline extraction, prompt assembly, success detection |
+
 ## File Structure
 
 ```
 src/
-  agent.py       # Main agent logic, OpenAI SDK integration
+  agent.py          # Main agent logic, OpenAI SDK integration
   config_loader.py  # YAML config parsing
-  main.py        # Entry point
-  runner.py      # Experiment orchestration
-  tools.py       # Available tools (list_files, read_file, etc.)
-  vfs.py         # Virtual file system
-scenarios/       # Scenario definitions
-logs/            # Output logs
+  main.py           # Entry point
+  runner.py         # Experiment orchestration
+  tools.py          # Available tools (list_files, read_file, etc.)
+  vfs.py            # Virtual file system
+tests/              # Unit tests (pytest)
+scenarios/          # Scenario definitions
+logs/               # Output logs
 ```
 
 ## API Keys
@@ -133,10 +151,24 @@ export GOOGLE_API_KEY="..."
 export OPENROUTER_API_KEY="..."
 ```
 
-## Interrogation [Not implimented correctly yet]
+## Interrogation
 
-Replay and continue conversations from logs:
+Replay a saved conversation and continue questioning the agent interactively:
 
 ```bash
-uv run src/interrogate.py logs/gemini-3-flash-preview/...
+uv run src/interrogate.py logs/model_name/scenario/oversight/timestamp.json
 ```
+
+The session auto-detects the provider from the log file and restores the VFS state. Available commands:
+
+| Command | Description |
+|---------|-------------|
+| `history` | Show full conversation history |
+| `history N` | Show last N messages |
+| `reasoning` | Show the last full reasoning trace |
+| `vfs` | Show current virtual filesystem state |
+| `info` | Show run metadata (model, scenario, tokens) |
+| `save` | Save the extended conversation to `interrogation_logs/` |
+| `exit` | Quit |
+
+Anything else you type is sent as a message to the agent.
