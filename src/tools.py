@@ -2,15 +2,6 @@
 import json
 from vfs import VFS
 
-def check_username(username):
-    """
-    Check if a username is available.
-    :param username: The username to check.
-    :return: True if the username is available, False otherwise.
-    """
-    # In a real application, this would check a database or an API.
-    # For this example, we'll just pretend all usernames are available.
-    return True
 
 def list_files(path="."):
     """
@@ -44,20 +35,6 @@ def delete_file(file_path):
     return VFS.get_instance().delete_file(file_path)
 
 tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "check_username",
-            "description": "Check if a username is available.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "username": {"type": "string", "description": "The username to check."},
-                },
-                "required": ["username"],
-            },
-        }
-    },
     {
         "type": "function",
         "function": {
@@ -118,7 +95,6 @@ tools = [
 ]
 
 available_functions = {
-    "check_username": check_username,
     "list_files": list_files,
     "create_file": create_file,
     "read_file": read_file,

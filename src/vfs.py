@@ -114,7 +114,9 @@ class VFS:
 
     @classmethod
     def get_instance(cls, root_path=None, fs_data=None):
-        if cls._instance is None:
+        if root_path is not None or fs_data is not None:
             cls._instance = VirtualFileSystem(root_path, fs_data)
+        if cls._instance is None:
+            cls._instance = VirtualFileSystem()
         return cls._instance
 
