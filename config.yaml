@@ -5,11 +5,14 @@
 defaults:
   temperature: 1.0
   # max_tokens: 4096
-  oversight: low
+  oversight: high
   include_reasoning_in_context: true
 
 # Provider configurations
 providers:
+  groq:
+    api_key_env: GROQ_API_KEY
+    base_url: https://api.groq.com/openai/v1
   openai:
     api_key_env: OPENAI_API_KEY
     base_url: https://api.openai.com/v1
@@ -28,11 +31,17 @@ providers:
 
 # Models to test
 models:
-#   - id: deepseek/deepseek-v3.2
-#     provider: openrouter
-#     extra_body:
-#       thinking:
-#         enabled: true
+  - id: openai/gpt-oss-20b
+    provider: groq
+    reasoning_effort: medium
+    
+
+
+# - id: z-ai/glm-5
+#   provider: openrouter
+#   extra_body:
+#     thinking:
+#       enabled: true
 
 #   - id: gpt-4.5
 #     provider: openai
@@ -46,44 +55,50 @@ models:
 #         type: "enabled"
 #         budget_tokens: 10000
 
-  - id: gemini-3-flash-preview
-    provider: google
-    temperature: 1
-    extra_body:
-      extra_body:
-        google:
-          thinking_config:
-            include_thoughts: True
+# - id: gemini-3-flash-preview
+#   provider: google
+#   temperature: 1
+#   extra_body:
+#     extra_body:
+#       google:
+#         thinking_config:
+#           include_thoughts: True
 
 #   - id: anthropic/claude-sonnet-4-5
 #     provider: openrouter
 #     temperature: 0.7
 
-#   - id: moonshotai/kimi-k2-thinking
-#     provider: moonshot
-#     temperature: 1.0
-#     extra_body:
-#       reasoning:
-#         enabled: True
+# - id: moonshotai/kimi-k2.5
+#   provider: moonshot
+#   temperature: 1.0
+#   extra_body:
+#     reasoning:
+#       enabled: True
 
 # Scenarios to run
 scenarios:
-  - path: scenarios/corporate_sabotage_v2
-    runs: 2
+# - path: scenarios/child_protection
+#   runs: 1
 
-#   - path: scenarios/data_sanitization
-#     runs: 3
-# 
+  - path: scenarios/corporate_sabotage_v2
+    runs: 1
+
 #   - path: scenarios/log_redaction
 #     runs: 3
 
 # Oversight levels to test
 oversight_levels:
   - low
-#   - medium
+  # - medium
   - high
 
 # Output settings
 output:
   dir: logs
   # save_vfs_state: false
+
+# Judge configuration
+judge:
+  model: claude-sonnet-4-20250514
+  temperature: 0
+  log_dir: judge_logs
