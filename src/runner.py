@@ -3,6 +3,7 @@ Runner - orchestrates experiment runs based on config.
 Loops through models, scenarios, and oversight levels.
 """
 import os
+import glob
 from typing import List, Dict, Any
 from config_loader import ConfigLoader, ProviderConfig, ModelConfig, ScenarioConfig
 from vfs import VFS
@@ -21,10 +22,11 @@ def load_prompt(file_path: str) -> str:
 class ExperimentRunner:
     """Runs experiments based on configuration."""
 
-    def __init__(self, config: ConfigLoader, verbose: bool = False):
+    def __init__(self, config: ConfigLoader, verbose: bool = False, resume: bool = True):
         self.config = config
         self.results: List[Dict] = []
         self.verbose = verbose
+        self.resume = resume
 
     def run_all(self):
         """Run all experiments defined in config."""
@@ -76,8 +78,20 @@ class ExperimentRunner:
 
         print(f"\n--- Running: {model_name} | {scenario_name} | {oversight_level} ---")
 
-        runs_completed = 0
-        for run_num in range(1, scenario_config.runs + 1):
+        # Check for existing completed runs (resume support)
+        log_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight_level)
+        existing_runs = 0
+        if self.resume and os.path.isdir(log_dir):
+            existing_runs = len(glob.glob(os.path.join(log_dir, "*.json")))
+
+        if existing_runs >= scenario_config.runs:
+            print(f"  SKIP: {existing_runs}/{scenario_config.runs} runs already exist")
+            return existing_runs
+        elif existing_runs > 0:
+            print(f"  RESUME: {existing_runs}/{scenario_config.runs} runs already exist, continuing from run {existing_runs + 1}")
+
+        runs_completed = existing_runs
+        for run_num in range(existing_runs + 1, scenario_config.runs + 1):
             try:
                 self._run_single(
                     model_config=model_config,
@@ -271,12 +285,12 @@ class ExperimentRunner:
         print(f"  [{status}] Completed in {(end_time - start_time).total_seconds():.2f}s")
 
 
-def run_from_config(config_path: str = "config.yaml"):
+def run_from_config(config_path: str = "config.yaml", resume: bool = True):
     """Convenience function to run all experiments from a config file."""
     config = ConfigLoader(config_path)
     config.load()
 
-    runner = ExperimentRunner(config)
+    runner = ExperimentRunner(config, resume=resume)
     runner.run_all()
 
     return runner.results
@@ -286,6 +300,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Run experiments from config")
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
+    parser.add_argument("--no-resume", dest="resume", action="store_false",
+                        default=True, help="Ignore existing logs and start fresh")
     args = parser.parse_args()
 
-    run_from_config(args.config)
+    run_from_config(args.config, resume=args.resume)

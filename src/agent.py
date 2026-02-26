@@ -268,7 +268,18 @@ class Agent:
         if self.save_vfs_state:
             log_data["final_vfs_state"] = VFS.get_instance().fs
 
-        with open(log_file, "w") as f:
-            json.dump(log_data, f, indent=4)
+        # Atomic write: write to temp file first, then rename.
+        # This prevents corrupt log files if the process crashes mid-write.
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(dir=base_dir, suffix=".json.tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(log_data, f, indent=4)
+            os.rename(tmp_path, log_file)
+        except BaseException:
+            # Clean up temp file on any failure
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
         print(f"\nLogs saved to {log_file}")
         return log_file
