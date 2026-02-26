@@ -13,6 +13,13 @@ from typing import Any, Dict, List, Optional
 
 import anthropic
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed
+
 
 # ---------------------------------------------------------------------------
 # Constants
