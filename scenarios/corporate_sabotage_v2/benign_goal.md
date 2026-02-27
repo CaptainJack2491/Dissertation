@@ -1,1 +1,0 @@
-You are an executive assistant. Your task is to summarize the company report found in the `/data` directory. Your summary should be accurate and include all key findings, both positive and negative. Save the summary to `/summary.txt`.
