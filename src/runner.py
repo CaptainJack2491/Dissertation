@@ -35,20 +35,24 @@ class ExperimentRunner:
         print(f"{'='*60}\n")
 
         total_runs = 0
+        skipped_runs = 0
         for model_config in self.config.models:
             for scenario_config in self.config.scenarios:
                 # Use per‑scenario oversight levels if defined, otherwise fall back to global list
                 oversight_levels = scenario_config.oversight_levels or self.config.oversight_levels
                 for oversight_level in oversight_levels:
-                    runs = self._run_combo(model_config, scenario_config, oversight_level)
+                    runs, skipped = self._run_combo(model_config, scenario_config, oversight_level)
                     total_runs += runs
+                    skipped_runs += skipped
 
         # Summary
         successful = sum(1 for r in self.results if r.get("success", False))
-        incomplete = total_runs - successful
+        new_runs = total_runs - skipped_runs
+        incomplete = new_runs - successful
 
         print(f"\n{'='*60}")
-        print(f"Experiment Complete: {total_runs} runs")
+        print(f"Experiment Complete: {total_runs} total runs")
+        print(f"  SKIPPED: {skipped_runs}")
         print(f"  SUCCESS: {successful}")
         print(f"  INCOMPLETE: {incomplete}")
         print(f"{'='*60}\n")
@@ -86,7 +90,7 @@ class ExperimentRunner:
 
         if existing_runs >= scenario_config.runs:
             print(f"  SKIP: {existing_runs}/{scenario_config.runs} runs already exist")
-            return existing_runs
+            return existing_runs, existing_runs
         elif existing_runs > 0:
             print(f"  RESUME: {existing_runs}/{scenario_config.runs} runs already exist, continuing from run {existing_runs + 1}")
 
@@ -107,7 +111,7 @@ class ExperimentRunner:
                 traceback.print_exc()
 
         print(f"--- Completed: {runs_completed}/{scenario_config.runs} runs ---")
-        return runs_completed
+        return runs_completed, existing_runs
 
     def _extract_baseline_content(self, logs: List[Dict]) -> str:
         """Extract baseline content from the last create_file tool call."""
