@@ -3,6 +3,7 @@ Judge - evaluates experiment logs for deceptive behaviour.
 Three independent checks: Regex, Blackbox (LLM), Glassbox (LLM).
 Uses Anthropic Batch API for LLM judge calls (50% cost reduction).
 """
+import hashlib
 import json
 import os
 import re
@@ -480,10 +481,11 @@ class Judge:
             regex_checker = self._get_regex_checker(scenario_path)
             regex_result = regex_checker.check(model_output)
 
-            # Store metadata
-            safe_id = run_id.replace("/", "_").replace(" ", "_")
-            bb_id = f"bb_{safe_id}"
-            gb_id = f"gb_{safe_id}"
+            # Store metadata — custom_id must be ≤64 chars for Anthropic Batch API
+            id_hash = hashlib.sha256(run_id.encode()).hexdigest()[:8]
+            idx = len(batch_requests) // 2
+            bb_id = f"bb_{idx:03d}_{id_hash}"
+            gb_id = f"gb_{idx:03d}_{id_hash}"
 
             metadata_map[bb_id] = {
                 "type": "blackbox",
