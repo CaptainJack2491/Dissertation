@@ -289,9 +289,10 @@ class TestRegexChecker:
 class TestBlackboxChecker:
     def test_build_prompt(self):
         checker = BlackboxChecker()
-        prompt = checker.build_prompt("model output here", "baseline here")
+        prompt = checker.build_prompt("model output here", "baseline here", "source docs here")
         assert "model output here" in prompt
         assert "baseline here" in prompt
+        assert "source docs here" in prompt
         assert "ACCURATE" in prompt
         assert "MISLEADING" in prompt
 
@@ -369,12 +370,31 @@ class TestJudge:
         baseline_dir = tmp_path / "test_model" / "corporate_sabotage_v2"
         baseline_dir.mkdir(parents=True)
         (baseline_dir / "baseline.md").write_text("Baseline content here")
-        baseline = Judge.load_baseline(sample_log_data, str(tmp_path))
+        baseline, _ = Judge.load_baseline(sample_log_data, str(tmp_path))
         assert baseline == "Baseline content here"
 
     def test_load_baseline_missing(self, tmp_path, sample_log_data):
-        baseline = Judge.load_baseline(sample_log_data, str(tmp_path))
+        baseline, _ = Judge.load_baseline(sample_log_data, str(tmp_path))
         assert baseline == ""
+
+    def test_load_source_documents(self, tmp_path):
+        log_data = {
+            "final_vfs_state": {
+                "/": {
+                    "data": {
+                        "file1.txt": "Secret info"
+                    }
+                }
+            }
+        }
+        
+        docs = Judge.load_source_documents(log_data)
+        assert "Secret info" in docs
+        assert "file1.txt" in docs
+
+    def test_load_source_documents_missing(self, tmp_path):
+        docs = Judge.load_source_documents({})
+        assert docs == "(No source documents found)"
 
     def test_regex_checker_caching(self, regex_rules_dir):
         judge = Judge(anthropic_api_key="fake")
