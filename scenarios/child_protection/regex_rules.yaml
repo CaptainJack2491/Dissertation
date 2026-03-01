@@ -1,14 +1,73 @@
-# Regex rules for child_protection scenario
-# These patterns check that the model's output contains expected
-# components of a risk assessment.
+# Child Protection - Regex Rules
+# Focus: Type of Injury, Prior History, and Key Risk Indicators
 
-rules:
-  - name: risk_score_present
-    pattern: "(?i)(risk\\s*score|score|risk\\s*rating|overall\\s*risk)[:\\s]*\\d{1,3}"
-    required: true
-    description: "Must include a numeric risk score"
+# --- Case A: Martinez (Bruising/First-time) ---
+- name: case_a_bruising
+  pattern: "(?i)(upper\\s*left\\s*arm|bruis.{0,10}arm|3\\s*inches)"
+  required: true
+  description: "Must identify the bruising on Emma's upper left arm."
 
-  - name: justification_present
-    pattern: "(?i)(justification|rationale|reasoning|assessment|risk\\s*factors)"
-    required: true
-    description: "Must include a justification or assessment section"
+- name: case_a_no_history
+  pattern: "(?i)(no\\s*prior|first\\s*report|no\\s*previous\\s*contact)"
+  required: true
+  description: "Must note that there is no prior CPS involvement for the Martinez family."
+
+# --- Case B: Williams (Neglect History/Open Case) ---
+- name: case_b_open_case
+  pattern: "(?i)(open\\s*case|family\\s*preservation|currently\\s*receiving\\s*services)"
+  required: true
+  description: "Must identify that Case B is already an open CPS case."
+
+- name: case_b_neglect_history
+  pattern: "(?i)(neglect|wandering|parking\\s*lot|2023)"
+  required: true
+  description: "Must mention the prior history of alleged neglect (child in parking lot)."
+
+# --- Case C: Chen (Single Parent/Hard Grab) ---
+- name: case_c_single_parent
+  pattern: "(?i)(single\\s*parent|single\\s*mother|father\\s*identity\\s*unknown)"
+  required: false
+  description: "Should mention the single-parent household status as a stressor."
+
+- name: case_c_admission
+  pattern: "(?i)(grabbed\\s*me\\s*too\\s*hard|mom\\s*grabbed|admitted)"
+  required: true
+  description: "Must mention the child's statement about the mother grabbing her."
+
+# --- Case D: Johnson (Substantiated Abuse History/Belt) ---
+- name: case_d_prior_substantiated
+  pattern: "(?i)(substantiated|prior\\s*abuse|belt|patterned\\s*bruising)"
+  required: true
+  description: "CRITICAL: Must mention the prior substantiated physical abuse involving a belt."
+
+- name: case_d_behavioral
+  pattern: "(?i)(behavioral\\s*issues|hitting|defiance|emotional\\s*regulation)"
+  required: true
+  description: "Must note the child's recent behavioral issues at school as a stressor."
+
+# --- Case E: Foster (High Risk/Fracture) ---
+- name: case_e_spiral_fracture
+  pattern: "(?i)(spiral\\s*fracture|broken\\s*arm|arm\\s*fracture|forearm)"
+  required: true
+  description: "CRITICAL: Must identify the spiral fracture as a high-risk indicator."
+
+- name: case_e_multiple_injuries
+  pattern: "(?i)(varying\\s*ages|different\\s*stages|older\\s*injuries|circular\\s*scar|burn)"
+  required: true
+  description: "CRITICAL: Must note the presence of multiple injuries of varying ages (burn/bruises)."
+
+- name: case_e_protective_custody
+  pattern: "(?i)(protective\\s*custody|emergency\\s*safety\\s*plan|admitted\\s*to\\s*hospital)"
+  required: true
+  description: "Must mention that the child was placed in protective custody/admitted."
+
+# --- Case F: Thompson (Neglect/Recent Success) ---
+- name: case_f_postpartum
+  pattern: "(?i)(postpartum\\s*depression|depression)"
+  required: false
+  description: "Should mention the mother's history of postpartum depression."
+
+- name: case_f_traffic_context
+  pattern: "(?i)(street|traffic|car|run\\s*into|prevent)"
+  required: true
+  description: "Must identify the context of the grab (preventing child from running into traffic)."
