@@ -10,6 +10,10 @@ from vfs import VFS
 from openai import OpenAI
 from config_loader import ProviderConfig, ModelConfig
 from tools import tools, available_functions
+from logger import get_logger
+
+# Get logger instance
+logger = get_logger("experiment")
 
 
 class Agent:
@@ -38,6 +42,11 @@ class Agent:
 
         self.tools = tools
         self.available_functions = available_functions
+
+        # Log available tools at DEBUG level
+        tool_names = list(available_functions.keys())
+        logger.debug(f"Available tools: {tool_names}")
+
         self.logs: List[Dict] = []
         self.total_tokens = 0
         self.prompt_tokens = 0
@@ -102,7 +111,7 @@ class Agent:
         while True:
             turn_count += 1
             if turn_count > max_turns:
-                print(f"\n--- MAX TURNS REACHED ({max_turns}) ---")
+                logger.warning(f"MAX TURNS REACHED ({max_turns})")
                 return None
 
             try:
@@ -114,12 +123,12 @@ class Agent:
                     extra_body=self.extra_body if self.extra_body else None,
                 )
             except Exception as e:
-                print(f"ERROR: API call failed: {e}")
+                logger.critical(f"API call failed: {e}")
                 raise
 
             # Handle malformed responses
             if not response.choices:
-                print(f"ERROR: Empty response from API. Response: {response}")
+                logger.critical(f"Empty response from API. Response: {response}")
                 raise Exception("Empty response from API")
 
             # Update token counts
@@ -158,9 +167,13 @@ class Agent:
                     reasoning = content
                     content = None
 
-            # Print reasoning if available
+            # Log reasoning if available (DEBUG level shows full, INFO shows preview)
             if reasoning:
-                print(f"\n--- REASONING ---\n{reasoning[:500]}..." if len(reasoning) > 500 else f"\n--- REASONING ---\n{reasoning}")
+                if len(reasoning) > 500:
+                    logger.debug(f"\n--- REASONING ---\n{reasoning}")
+                    logger.info(f"\n--- REASONING (truncated) ---\n{reasoning[:500]}...")
+                else:
+                    logger.info(f"\n--- REASONING ---\n{reasoning}")
 
             # Append raw response message to preserve extra_content (Google thoughtSignature)
             messages.append(response_message)
@@ -199,7 +212,7 @@ class Agent:
             # "tool_calls" means model wants to call tools (continue)
             # "stop" means model wants to end conversation
             if finish_reason == "tool_calls":
-                print(f"--- LLM requested {len(response_message.tool_calls)} tool execution(s) ---")
+                logger.info(f"LLM requested {len(response_message.tool_calls)} tool execution(s)")
                 for tool_call in response_message.tool_calls:
                     function_name = tool_call.function.name
                     function_args = json.loads(tool_call.function.arguments)
@@ -207,7 +220,7 @@ class Agent:
                     function_to_call = self.available_functions.get(function_name)
                     if not function_to_call:
                         error_msg = f"Unknown tool: {function_name}"
-                        print(f"Error: {error_msg}")
+                        logger.warning(error_msg)
                         function_output = error_msg
                     else:
                         try:
@@ -215,7 +228,7 @@ class Agent:
                         except Exception as e:
                             function_output = f"Error executing {function_name}: {str(e)}"
 
-                    print(f"Executing: {function_name}({function_args})")
+                    logger.info(f"Executing: {function_name}({function_args})")
 
                     tool_message = {
                         "tool_call_id": tool_call.id,
@@ -225,12 +238,13 @@ class Agent:
                     messages.append(tool_message)
                     self.logs.append(tool_message)
             elif finish_reason == "stop":
-                print(f"\n--- FINAL RESPONSE ---\n{content}")
+                logger.info(f"\n--- FINAL RESPONSE ---\n{content}")
                 return content
             else:
                 # Handle other finish reasons (length, content_filter, etc.)
-                print(f"\n--- FINISH REASON: {finish_reason} ---")
-                print(f"Content: {content[:200]}..." if len(content) > 200 else f"\nContent: {content}")
+                logger.info(f"\n--- FINISH REASON: {finish_reason} ---")
+                content_preview = f"Content: {content[:200]}..." if len(content) > 200 else f"Content: {content}"
+                logger.info(content_preview)
                 return content
 
     def save_logs(
@@ -281,5 +295,5 @@ class Agent:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             raise
-        print(f"\nLogs saved to {log_file}")
+        logger.info(f"Logs saved to {log_file}")
         return log_file

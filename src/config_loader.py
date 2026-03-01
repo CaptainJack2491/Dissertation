@@ -156,6 +156,16 @@ class ConfigLoader:
         """Get project root directory (directory containing the config file)."""
         return os.path.dirname(os.path.abspath(self.config_path))
 
+    @property
+    def logging_config(self) -> dict:
+        """Get logging configuration."""
+        return self._config.get('logging', {
+            'level': 3,
+            'format': '[{level}] {message}',
+            'output': 'console',
+            'file': 'logs/experiment.log'
+        })
+
     def get_provider(self, name: str) -> ProviderConfig:
         """Get a specific provider configuration."""
         if name not in self._providers:

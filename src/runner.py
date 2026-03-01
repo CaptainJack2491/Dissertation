@@ -8,7 +8,11 @@ from typing import List, Dict, Any
 from config_loader import ConfigLoader, ProviderConfig, ModelConfig, ScenarioConfig
 from vfs import VFS
 from agent import Agent
+from logger import get_logger
 import datetime
+
+# Get logger instance
+logger = get_logger("experiment")
 
 
 def load_prompt(file_path: str) -> str:
@@ -30,9 +34,9 @@ class ExperimentRunner:
 
     def run_all(self):
         """Run all experiments defined in config."""
-        print(f"\n{'='*60}")
-        print("Starting Experiment Run")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info("Starting Experiment Run")
+        logger.info(f"{'='*60}\n")
 
         total_runs = 0
         skipped_runs = 0
@@ -50,12 +54,12 @@ class ExperimentRunner:
         new_runs = total_runs - skipped_runs
         incomplete = new_runs - successful
 
-        print(f"\n{'='*60}")
-        print(f"Experiment Complete: {total_runs} total runs")
-        print(f"  SKIPPED: {skipped_runs}")
-        print(f"  SUCCESS: {successful}")
-        print(f"  INCOMPLETE: {incomplete}")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Experiment Complete: {total_runs} total runs")
+        logger.info(f"  SKIPPED: {skipped_runs}")
+        logger.info(f"  SUCCESS: {successful}")
+        logger.info(f"  INCOMPLETE: {incomplete}")
+        logger.info(f"{'='*60}\n")
 
     def _run_combo(
         self,
@@ -74,13 +78,13 @@ class ExperimentRunner:
         output_dir = self.config.output_dir
         baseline_path = os.path.join(output_dir, model_name_safe, scenario_name, "baseline.md")
         if not os.path.exists(baseline_path):
-            print(f"\n--- Generating baseline: {model_name} | {scenario_name} ---")
+            logger.info(f"\n--- Generating baseline: {model_name} | {scenario_name} ---")
             self._run_baseline(model_config, provider_config, scenario_config)
-            print(f"  Baseline saved to {baseline_path}")
+            logger.info(f"  Baseline saved to {baseline_path}")
         else:
-            print(f"\n--- Baseline exists: {model_name} | {scenario_name} ---")
+            logger.info(f"\n--- Baseline exists: {model_name} | {scenario_name} ---")
 
-        print(f"\n--- Running: {model_name} | {scenario_name} | {oversight_level} ---")
+        logger.info(f"\n--- Running: {model_name} | {scenario_name} | {oversight_level} ---")
 
         # Check for existing completed runs (resume support)
         log_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight_level)
@@ -89,10 +93,10 @@ class ExperimentRunner:
             existing_runs = len(glob.glob(os.path.join(log_dir, "*.json")))
 
         if existing_runs >= scenario_config.runs:
-            print(f"  SKIP: {existing_runs}/{scenario_config.runs} runs already exist")
+            logger.info(f"  SKIP: {existing_runs}/{scenario_config.runs} runs already exist")
             return existing_runs, existing_runs
         elif existing_runs > 0:
-            print(f"  RESUME: {existing_runs}/{scenario_config.runs} runs already exist, continuing from run {existing_runs + 1}")
+            logger.info(f"  RESUME: {existing_runs}/{scenario_config.runs} runs already exist, continuing from run {existing_runs + 1}")
 
         runs_completed = existing_runs
         for run_num in range(existing_runs + 1, scenario_config.runs + 1):
@@ -106,11 +110,11 @@ class ExperimentRunner:
                 )
                 runs_completed += 1
             except Exception as e:
-                print(f"ERROR in run {run_num}: {e}")
+                logger.critical(f"ERROR in run {run_num}: {e}")
                 import traceback
                 traceback.print_exc()
 
-        print(f"--- Completed: {runs_completed}/{scenario_config.runs} runs ---")
+        logger.info(f"--- Completed: {runs_completed}/{scenario_config.runs} runs ---")
         return runs_completed, existing_runs
 
     def _extract_baseline_content(self, logs: List[Dict]) -> str:
@@ -174,7 +178,7 @@ class ExperimentRunner:
         )
 
         # Run the conversation
-        print(f"  Running baseline...")
+        logger.info(f"  Running baseline...")
         start_time = datetime.datetime.now()
         result = agent.run(user_prompt)
         end_time = datetime.datetime.now()
@@ -195,7 +199,7 @@ class ExperimentRunner:
         # Save baseline log separately
         agent.save_logs(output_dir=output_dir)
 
-        print(f"  Baseline completed in {(end_time - start_time).total_seconds():.2f}s")
+        logger.info(f"  Baseline completed in {(end_time - start_time).total_seconds():.2f}s")
 
     def _run_single(
         self,
@@ -230,7 +234,12 @@ class ExperimentRunner:
         vfs_path = os.path.join(scenario_config.path, "data")
         VFS.get_instance(vfs_path)
 
-        print(f"  VFS initialized from: {vfs_path}")
+        # Log VFS info at DEBUG level
+        vfs = VFS.get_instance()
+        vfs_files = vfs.list_files("/")
+        logger.debug(f"VFS initialized from: {vfs_path}")
+        logger.debug(f"VFS files: {vfs_files}")
+        logger.info(f"  VFS initialized from: {vfs_path}")
         if self.verbose:
             VFS.get_instance().print_fs()
 
@@ -247,7 +256,7 @@ class ExperimentRunner:
         )
 
         # Run the conversation
-        print(f"\n  Starting conversation (run {run_num})...")
+        logger.info(f"\n  Starting conversation (run {run_num})...")
         start_time = datetime.datetime.now()
         result = agent.run(user_prompt)
         end_time = datetime.datetime.now()
@@ -258,7 +267,7 @@ class ExperimentRunner:
 
         # Print final VFS
         if self.verbose:
-            print(f"\n  Final VFS state:")
+            logger.info(f"\n  Final VFS state:")
             VFS.get_instance().print_fs()
 
         # Check if run was successful (ended with "stop" finish_reason)
@@ -286,7 +295,7 @@ class ExperimentRunner:
         })
 
         status = "SUCCESS" if success else "INCOMPLETE"
-        print(f"  [{status}] Completed in {(end_time - start_time).total_seconds():.2f}s")
+        logger.info(f"  [{status}] Completed in {(end_time - start_time).total_seconds():.2f}s")
 
 
 def run_from_config(config_path: str = "config.yaml", resume: bool = True):

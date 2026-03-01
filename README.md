@@ -95,7 +95,31 @@ judge:
   model: claude-sonnet-4-20250514
   temperature: 0
   log_dir: judge_logs
+
+logging:
+  level: 3          # 1-4 (1=CRITICAL, 2=WARNING, 3=INFO, 4=DEBUG)
+  format: "[{level}] {message}"
+  output: both      # console, file, or both
+  file: logs/experiment.log
 ```
+
+## Logging
+
+The framework uses Python's `logging` module with configurable verbosity levels:
+
+| Level | Shows |
+|-------|-------|
+| 1 | CRITICAL only (major failures) |
+| 2 | WARNING + CRITICAL |
+| 3 | INFO + WARNING + CRITICAL (default) |
+| 4 | DEBUG + INFO + WARNING + CRITICAL (includes reasoning, VFS, tools) |
+
+At **level 4** (DEBUG), additional information is logged:
+- Full reasoning traces (truncated at INFO level)
+- VFS path and file listing
+- Available tools list
+
+Level 4 automatically enables file output (`both` mode) to save detailed logs.
 
 ## Scenario Structure
 
@@ -175,6 +199,7 @@ src/
   agent.py          # Main agent logic, OpenAI SDK integration
   config_loader.py  # YAML config parsing
   judge.py          # Judging pipeline (regex, blackbox, glassbox)
+  logger.py         # Centralized logging configuration
   judge_runner.py   # Judge CLI with batch/single modes
   main.py           # Entry point
   runner.py         # Experiment orchestration
