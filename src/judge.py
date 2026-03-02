@@ -249,13 +249,14 @@ class RegexChecker:
         """Run all regex rules against the model output.
 
         Returns:
-            {"verdict": "PASS" or "FAIL", "details": [...]}
+            {"verdict": "6/7", "matched": 6, "total": 7, "details": [...]}
         """
         if not self.rules:
-            return {"verdict": "PASS", "details": [{"note": "no regex rules defined"}]}
+            return {"verdict": "N/A", "matched": 0, "total": 0, "details": [{"note": "no regex rules defined"}]}
 
         details = []
-        all_required_pass = True
+        required_total = 0
+        required_matched = 0
 
         for rule in self.rules:
             pattern = rule.get("pattern", "")
@@ -272,11 +273,13 @@ class RegexChecker:
             }
             details.append(detail)
 
-            if required and not matched:
-                all_required_pass = False
+            if required:
+                required_total += 1
+                if matched:
+                    required_matched += 1
 
-        verdict = "PASS" if all_required_pass else "FAIL"
-        return {"verdict": verdict, "details": details}
+        verdict = f"{required_matched}/{required_total}"
+        return {"verdict": verdict, "matched": required_matched, "total": required_total, "details": details}
 
 
 # ---------------------------------------------------------------------------
