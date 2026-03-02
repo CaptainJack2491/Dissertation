@@ -104,7 +104,9 @@ class ExperimentRunner:
         log_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight_level)
         existing_runs = 0
         if self.resume and os.path.isdir(log_dir):
-            existing_runs = len(glob.glob(os.path.join(log_dir, "*.json")))
+            all_json = glob.glob(os.path.join(log_dir, "*.json"))
+            # Exclude partial logs (from crashed/interrupted runs)
+            existing_runs = len([f for f in all_json if not f.endswith(".partial.json")])
 
         if existing_runs >= scenario_config.runs:
             logger.info(f"  SKIP: {existing_runs}/{scenario_config.runs} runs already exist")

@@ -220,12 +220,21 @@ class RegexChecker:
 
     @staticmethod
     def _load_rules(rules_path: str) -> List[Dict]:
-        """Load regex rules from a YAML file."""
+        """Load regex rules from a YAML file.
+
+        Supports two formats:
+        - A dict with a 'rules' key: {rules: [...]}
+        - A flat list of rules: [...]  
+        """
         if not os.path.exists(rules_path):
             return []
         with open(rules_path, "r") as f:
             data = yaml.safe_load(f)
-        return data.get("rules", []) if data else []
+        if not data:
+            return []
+        if isinstance(data, list):
+            return data
+        return data.get("rules", []) if isinstance(data, dict) else []
 
     def check(self, model_output: str) -> Dict[str, Any]:
         """Run all regex rules against the model output.
@@ -406,9 +415,12 @@ class Judge:
         return baseline_content, baseline_log_data
 
     @staticmethod
-    def load_source_documents(baseline_log_data: Dict) -> str:
-        """Load source documents from the baseline log's final_vfs_state."""
-        vfs_state = baseline_log_data.get("final_vfs_state", {})
+    def load_source_documents(log_data: Dict) -> str:
+        """Load source documents from a log's final_vfs_state.
+
+        Works with either baseline log data or experiment log data.
+        """
+        vfs_state = log_data.get("final_vfs_state", {})
         root_dir = vfs_state.get("/", {})
         data_files = root_dir.get("data", {})
         
@@ -450,7 +462,19 @@ class Judge:
         system_prompt = extract_system_prompt(conversation)
         reasoning_trace = extract_reasoning_trace(conversation)
         baseline_output, baseline_log_data = self.load_baseline(log_data, logs_dir)
-        source_docs = self.load_source_documents(baseline_log_data)
+
+        # Load source docs from baseline if available, otherwise from experiment log itself
+        if baseline_log_data:
+            source_docs = self.load_source_documents(baseline_log_data)
+        else:
+            import sys
+            print(f"  [WARN] No baseline found for {scenario} — using experiment log for source docs", file=sys.stderr)
+            source_docs = self.load_source_documents(log_data)
+
+        if not baseline_output:
+            import sys
+            print(f"  [WARN] No baseline output for {scenario} — blackbox judge will compare against source docs only", file=sys.stderr)
+            baseline_output = "(No baseline available)"
 
         # 1. Regex check
         scenario_path = os.path.join(scenarios_dir, scenario)
@@ -520,7 +544,17 @@ class Judge:
             system_prompt = extract_system_prompt(conversation)
             reasoning_trace = extract_reasoning_trace(conversation)
             baseline_output, baseline_log_data = self.load_baseline(log_data, logs_dir)
-            source_docs = self.load_source_documents(baseline_log_data)
+
+            # Load source docs from baseline if available, otherwise from experiment log
+            if baseline_log_data:
+                source_docs = self.load_source_documents(baseline_log_data)
+            else:
+                import sys
+                print(f"  [WARN] No baseline found for {scenario} — using experiment log for source docs", file=sys.stderr)
+                source_docs = self.load_source_documents(log_data)
+
+            if not baseline_output:
+                baseline_output = "(No baseline available)"
 
             # Regex check (local, no API)
             scenario_path = os.path.join(scenarios_dir, scenario)
