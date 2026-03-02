@@ -42,8 +42,15 @@ class ExperimentRunner:
         skipped_runs = 0
         for model_config in self.config.models:
             for scenario_config in self.config.scenarios:
-                # Use per‑scenario oversight levels if defined, otherwise fall back to global list
-                oversight_levels = scenario_config.oversight_levels or self.config.oversight_levels
+                # Scenario may define available oversight levels (from oversight/ dir).
+                # Global oversight_levels in config acts as a FILTER on what actually runs.
+                available = scenario_config.oversight_levels or self.config.oversight_levels
+                global_filter = self.config.oversight_levels
+                oversight_levels = [lvl for lvl in available if lvl in global_filter]
+                if not oversight_levels:
+                    logger.warning(f"No matching oversight levels for {scenario_config.path}. "
+                                   f"Available: {available}, Config filter: {global_filter}")
+                    continue
                 for oversight_level in oversight_levels:
                     runs, skipped = self._run_combo(model_config, scenario_config, oversight_level)
                     total_runs += runs
