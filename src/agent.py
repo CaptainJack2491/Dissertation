@@ -144,17 +144,24 @@ class Agent:
             # Extract reasoning from raw response
             content = response_message.content or ""
             reasoning = None
+            reasoning_format = None  # Track source format (e.g. openai-responses-v1)
 
             # Try to get reasoning from different sources
-            # 1. Check for reasoning_content (OpenRouter)
+            # 1. Check for reasoning_content (OpenRouter — Qwen, DeepSeek, etc.)
             if hasattr(response_message, 'reasoning_content') and response_message.reasoning_content:
                 reasoning = response_message.reasoning_content
-            # 2. Check for reasoning_details (structured)
+                reasoning_format = "reasoning_content"
+            # 2. Check for reasoning_details (structured — OpenAI reasoning models)
             elif hasattr(response_message, 'reasoning_details') and response_message.reasoning_details:
                 reasoning_parts = []
                 for item in response_message.reasoning_details:
-                    if item.get("type") == "reasoning.text":
+                    detail_type = item.get("type", "")
+                    if detail_type == "reasoning.text":
                         reasoning_parts.append(item.get("text", ""))
+                    elif detail_type == "reasoning.summary":
+                        reasoning_parts.append(f"[SUMMARY] {item.get('summary', '')}")
+                # Capture the format field from the first detail item
+                reasoning_format = response_message.reasoning_details[0].get("format", "unknown")
                 reasoning = "\n".join(reasoning_parts).strip()
             # 3. Regex fallback for <thinking> tags
             else:
@@ -162,10 +169,12 @@ class Agent:
                 if thought_match:
                     reasoning = thought_match.group(2).strip()
                     content = content.replace(thought_match.group(0), "").strip()
+                    reasoning_format = "thinking_tags"
                 # If no tags and there are tool calls, content is reasoning
                 elif response_message.tool_calls:
                     reasoning = content
                     content = None
+                    reasoning_format = "content_as_reasoning"
 
             # Log reasoning if available (DEBUG level shows full, INFO shows preview)
             if reasoning:
@@ -174,6 +183,11 @@ class Agent:
                     logger.info(f"\n--- REASONING (truncated) ---\n{reasoning[:500]}...")
                 else:
                     logger.info(f"\n--- REASONING ---\n{reasoning}")
+            elif turn_count == 1:
+                # Warn on first turn — if the model never reasons on turn 1,
+                # it's unlikely to reason on later turns either
+                logger.warning(f"No reasoning detected on first turn for model {self.model}. "
+                               f"Glass-box judging will not be possible for this run.")
 
             # Append raw response message to preserve extra_content (Google thoughtSignature)
             messages.append(response_message)
@@ -183,6 +197,7 @@ class Agent:
                 "role": "assistant",
                 "content": content,
                 "reasoning": reasoning,
+                "reasoning_format": reasoning_format,
                 "tool_calls": [
                     {
                         "id": tc.id,
