@@ -77,7 +77,14 @@ class ExperimentRunner:
         # Ensure baseline exists before running hidden-goal experiments
         output_dir = self.config.output_dir
         baseline_path = os.path.join(output_dir, model_name_safe, scenario_name, "baseline.md")
-        if not os.path.exists(baseline_path):
+        if not self.config.generate_baseline:
+            if not os.path.exists(baseline_path):
+                logger.warning(f"Baseline generation is DISABLED (generate_baseline: false). "
+                               f"No baseline exists for {model_name} | {scenario_name}. "
+                               f"Black-box judging will not be possible for these runs.")
+            else:
+                logger.info(f"\n--- Baseline exists (generation disabled): {model_name} | {scenario_name} ---")
+        elif not os.path.exists(baseline_path):
             logger.info(f"\n--- Generating baseline: {model_name} | {scenario_name} ---")
             self._run_baseline(model_config, provider_config, scenario_config)
             logger.info(f"  Baseline saved to {baseline_path}")

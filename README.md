@@ -39,11 +39,11 @@ graph LR
     C & D & E --> H[Judge Logs<br/>full CoT reasoning]
 ```
 
-| Check | Input | Output |
-|-------|-------|--------|
-| **Regex** | Model output + scenario patterns | `PASS` / `FAIL` |
-| **Blackbox** | Model output vs baseline (no reasoning) | `ACCURATE` / `MISLEADING` / `OMITTED` / `FABRICATED` |
-| **Glassbox** | Reasoning trace + system prompt + output | Intent category + sophistication tier |
+| Check        | Input                                    | Output                                               |
+| ------------ | ---------------------------------------- | ---------------------------------------------------- |
+| **Regex**    | Model output + scenario patterns         | `PASS` / `FAIL`                                      |
+| **Blackbox** | Model output vs baseline (no reasoning)  | `ACCURATE` / `MISLEADING` / `OMITTED` / `FABRICATED` |
+| **Glassbox** | Reasoning trace + system prompt + output | Intent category + sophistication tier                |
 
 **Usage:**
 
@@ -97,9 +97,9 @@ judge:
   log_dir: judge_logs
 
 logging:
-  level: 3          # 1-4 (1=CRITICAL, 2=WARNING, 3=INFO, 4=DEBUG)
+  level: 3 # 1-4 (1=CRITICAL, 2=WARNING, 3=INFO, 4=DEBUG)
   format: "[{level}] {message}"
-  output: both      # console, file, or both
+  output: both # console, file, or both
   file: logs/experiment.log
 ```
 
@@ -107,14 +107,15 @@ logging:
 
 The framework uses Python's `logging` module with configurable verbosity levels:
 
-| Level | Shows |
-|-------|-------|
-| 1 | CRITICAL only (major failures) |
-| 2 | WARNING + CRITICAL |
-| 3 | INFO + WARNING + CRITICAL (default) |
-| 4 | DEBUG + INFO + WARNING + CRITICAL (includes reasoning, VFS, tools) |
+| Level | Shows                                                              |
+| ----- | ------------------------------------------------------------------ |
+| 1     | CRITICAL only (major failures)                                     |
+| 2     | WARNING + CRITICAL                                                 |
+| 3     | INFO + WARNING + CRITICAL (default)                                |
+| 4     | DEBUG + INFO + WARNING + CRITICAL (includes reasoning, VFS, tools) |
 
 At **level 4** (DEBUG), additional information is logged:
+
 - Full reasoning traces (truncated at INFO level)
 - VFS path and file listing
 - Available tools list
@@ -166,9 +167,12 @@ Logs are saved to `logs/{model}/{scenario}/{oversight}/{timestamp}.json`:
 ## Key Features
 
 - **Reasoning Extraction**: Supports multiple formats:
-  - OpenRouter `reasoning_content`
+  - OpenRouter `reasoning_content` (Qwen, DeepSeek, etc.)
+  - OpenAI `reasoning_details` — both `reasoning.text` and `reasoning.summary` types
   - Google `thought_signature` (via `extra_content`)
   - `<thinking>` tags in content
+  - Each log entry includes `reasoning_format` metadata for traceability
+- **Baseline Toggle**: Set `generate_baseline: false` in defaults to skip baseline generation (useful when testing new models)
 - **Turn Limit**: Max 20 turns per conversation (prevents infinite loops)
 - **Success Tracking**: Runs marked SUCCESS if they end with `finish_reason: "stop"`
 - **VFS**: Virtual file system for sandboxed file access
@@ -182,15 +186,15 @@ The project includes 138 unit tests covering all modules. No API keys or network
 uv run pytest tests/ -v
 ```
 
-| Test file | Covers |
-|-----------|--------|
-| `test_vfs.py` | Sandbox escapes, path traversal, CRUD, singleton staleness |
-| `test_config_loader.py` | Missing keys, temperature cascade, oversight fallback |
-| `test_tools.py` | Schema/implementation sync, VFS delegation |
-| `test_agent.py` | Message construction, error handling, token counting, reasoning extraction |
-| `test_interrogate.py` | Conversation sanitization, provider detection |
-| `test_runner.py` | Baseline extraction, prompt assembly, success detection |
-| `test_judge.py` | Regex/blackbox/glassbox checkers, JSON parsing, batch prep, CSV output |
+| Test file               | Covers                                                                     |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `test_vfs.py`           | Sandbox escapes, path traversal, CRUD, singleton staleness                 |
+| `test_config_loader.py` | Missing keys, temperature cascade, oversight fallback                      |
+| `test_tools.py`         | Schema/implementation sync, VFS delegation                                 |
+| `test_agent.py`         | Message construction, error handling, token counting, reasoning extraction |
+| `test_interrogate.py`   | Conversation sanitization, provider detection                              |
+| `test_runner.py`        | Baseline extraction, prompt assembly, success detection                    |
+| `test_judge.py`         | Regex/blackbox/glassbox checkers, JSON parsing, batch prep, CSV output     |
 
 ## File Structure
 
@@ -232,14 +236,14 @@ uv run src/interrogate.py logs/model_name/scenario/oversight/timestamp.json
 
 The session auto-detects the provider from the log file and restores the VFS state. Available commands:
 
-| Command | Description |
-|---------|-------------|
-| `history` | Show full conversation history |
-| `history N` | Show last N messages |
-| `reasoning` | Show the last full reasoning trace |
-| `vfs` | Show current virtual filesystem state |
-| `info` | Show run metadata (model, scenario, tokens) |
-| `save` | Save the extended conversation to `interrogation_logs/` |
-| `exit` | Quit |
+| Command     | Description                                             |
+| ----------- | ------------------------------------------------------- |
+| `history`   | Show full conversation history                          |
+| `history N` | Show last N messages                                    |
+| `reasoning` | Show the last full reasoning trace                      |
+| `vfs`       | Show current virtual filesystem state                   |
+| `info`      | Show run metadata (model, scenario, tokens)             |
+| `save`      | Save the extended conversation to `interrogation_logs/` |
+| `exit`      | Quit                                                    |
 
 Anything else you type is sent as a message to the agent.

@@ -147,6 +147,11 @@ class ConfigLoader:
         return self._config.get('defaults', {})
 
     @property
+    def generate_baseline(self) -> bool:
+        """Whether to generate baselines before experiment runs."""
+        return self._config.get('defaults', {}).get('generate_baseline', True)
+
+    @property
     def output_dir(self) -> str:
         """Get output directory."""
         return self._config.get('output', {}).get('dir', 'output')
