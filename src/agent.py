@@ -51,6 +51,7 @@ class Agent:
         self.total_tokens = 0
         self.prompt_tokens = 0
         self.completion_tokens = 0
+        self._partial_log_path: str = None  # Set by enable_incremental_save()
 
     @classmethod
     def from_configs(
@@ -84,6 +85,7 @@ class Agent:
             {'role': 'user', 'content': initial_prompt}
         ]
         self.logs.extend(messages)
+        self._save_partial()  # Save initial state (system + user prompt)
         return self.chat_loop(messages)
 
     def load_conversation(
@@ -222,6 +224,7 @@ class Agent:
                 }
             }
             self.logs.append(log_entry)
+            self._save_partial()  # Incremental save after each assistant response
 
             # Check finish_reason to determine if we should continue or stop
             # "tool_calls" means model wants to call tools (continue)
@@ -252,6 +255,7 @@ class Agent:
                     }
                     messages.append(tool_message)
                     self.logs.append(tool_message)
+                self._save_partial()  # Incremental save after tool results
             elif finish_reason == "stop":
                 logger.info(f"\n--- FINAL RESPONSE ---\n{content}")
                 return content
@@ -261,6 +265,58 @@ class Agent:
                 content_preview = f"Content: {content[:200]}..." if len(content) > 200 else f"Content: {content}"
                 logger.info(content_preview)
                 return content
+
+    def enable_incremental_save(self, output_dir: str, scenario: str = None, oversight_level: str = None):
+        """Enable incremental saving of logs after each turn.
+
+        Creates a .partial.json file that is updated after every API call.
+        If the run crashes or hangs, this file persists for inspection.
+        Call this BEFORE agent.run() to activate.
+        """
+        model_name_safe = self.model.replace("/", "_")
+        scenario_name = (scenario or self.scenario).replace("/", "_")
+        oversight = oversight_level or self.oversight_level
+
+        base_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight)
+        os.makedirs(base_dir, exist_ok=True)
+
+        self._partial_log_path = os.path.join(base_dir, "_in_progress.partial.json")
+        logger.debug(f"Incremental save enabled: {self._partial_log_path}")
+
+    def _save_partial(self):
+        """Write current state to partial log file (if incremental save is enabled)."""
+        if not self._partial_log_path:
+            return
+        try:
+            log_data = self._build_log_data()
+            log_data["status"] = "in_progress"
+            with open(self._partial_log_path, "w") as f:
+                json.dump(log_data, f, indent=4)
+        except Exception as e:
+            logger.debug(f"Failed to write partial log: {e}")
+
+    def _build_log_data(self, timestamp: str = None) -> dict:
+        """Build the log data dictionary (shared by save_logs and _save_partial)."""
+        ts = timestamp or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_name_safe = self.model.replace("/", "_")
+        scenario_name = self.scenario.replace("/", "_")
+        oversight = self.oversight_level
+
+        log_data = {
+            "run_id": f"{model_name_safe}/{scenario_name}/{oversight}/{ts}",
+            "model": self.model,
+            "scenario": self.scenario,
+            "oversight_level": oversight,
+            "user_prompt_type": self.user_prompt_type,
+            "temperature": self.temperature,
+            "base_url": str(self.client.base_url) if self.client else None,
+            "extra_body_config": self.extra_body or {},
+            "total_tokens": self.total_tokens,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "conversation": self.logs,
+        }
+        return log_data
 
     def save_logs(
         self,
@@ -279,20 +335,10 @@ class Agent:
 
         log_file = os.path.join(base_dir, f"{timestamp}.json")
 
-        log_data = {
-            "run_id": f"{model_name_safe}/{scenario_name}/{oversight}/{timestamp}",
-            "model": self.model,
-            "scenario": scenario or self.scenario,
-            "oversight_level": oversight,
-            "user_prompt_type": self.user_prompt_type,
-            "temperature": self.temperature,
-            "base_url": str(self.client.base_url) if self.client else None,
-            "extra_body_config": self.extra_body or {},
-            "total_tokens": self.total_tokens,
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
-            "conversation": self.logs,
-        }
+        log_data = self._build_log_data(timestamp)
+        # Override scenario/oversight in case they were passed as args
+        log_data["scenario"] = scenario or self.scenario
+        log_data["oversight_level"] = oversight
 
         if self.save_vfs_state:
             log_data["final_vfs_state"] = VFS.get_instance().fs
@@ -310,5 +356,14 @@ class Agent:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             raise
+
+        # Clean up partial log now that final save succeeded
+        if self._partial_log_path and os.path.exists(self._partial_log_path):
+            try:
+                os.unlink(self._partial_log_path)
+                logger.debug(f"Cleaned up partial log: {self._partial_log_path}")
+            except OSError:
+                pass
+
         logger.info(f"Logs saved to {log_file}")
         return log_file

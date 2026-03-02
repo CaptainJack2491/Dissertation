@@ -186,6 +186,8 @@ class ExperimentRunner:
 
         # Run the conversation
         logger.info(f"  Running baseline...")
+        output_dir = self.config.output_dir
+        agent.enable_incremental_save(output_dir=output_dir)
         start_time = datetime.datetime.now()
         result = agent.run(user_prompt)
         end_time = datetime.datetime.now()
@@ -264,6 +266,8 @@ class ExperimentRunner:
 
         # Run the conversation
         logger.info(f"\n  Starting conversation (run {run_num})...")
+        output_dir = self.config.output_dir
+        agent.enable_incremental_save(output_dir=output_dir)
         start_time = datetime.datetime.now()
         result = agent.run(user_prompt)
         end_time = datetime.datetime.now()
