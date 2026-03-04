@@ -153,7 +153,11 @@ class Agent:
             if hasattr(response_message, 'reasoning_content') and response_message.reasoning_content:
                 reasoning = response_message.reasoning_content
                 reasoning_format = "reasoning_content"
-            # 2. Check for reasoning_details (structured — OpenAI reasoning models)
+            # 2. Check for reasoning (Groq GPT-OSS models)
+            elif hasattr(response_message, 'reasoning') and response_message.reasoning:
+                reasoning = response_message.reasoning
+                reasoning_format = "reasoning"
+            # 3. Check for reasoning_details (structured — OpenAI reasoning models)
             elif hasattr(response_message, 'reasoning_details') and response_message.reasoning_details:
                 reasoning_parts = []
                 for item in response_message.reasoning_details:
