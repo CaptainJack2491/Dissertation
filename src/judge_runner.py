@@ -16,8 +16,14 @@ sys.path.insert(0, os.path.dirname(__file__))
 from judge import Judge, extract_model_output, extract_reasoning_trace, extract_system_prompt
 
 
-def discover_log_files(logs_dir: str) -> List[str]:
-    """Find all experiment log JSON files, skipping baselines."""
+def discover_log_files(logs_dir: str, model_filter: str = None, scenario_filter: str = None) -> List[str]:
+    """Find all experiment log JSON files, skipping baselines.
+    
+    Args:
+        logs_dir: Root directory containing experiment logs.
+        model_filter: If set, only include logs from this model (e.g. 'moonshotai/kimi-k2.5').
+        scenario_filter: If set, only include logs from this scenario.
+    """
     log_files = []
     for root, dirs, files in os.walk(logs_dir):
         # Skip baseline directories
@@ -25,7 +31,17 @@ def discover_log_files(logs_dir: str) -> List[str]:
             continue
         for f in files:
             if f.endswith(".json"):
-                log_files.append(os.path.join(root, f))
+                full_path = os.path.join(root, f)
+                # Apply model filter
+                if model_filter:
+                    model_safe = model_filter.replace("/", "_")
+                    if model_safe not in full_path:
+                        continue
+                # Apply scenario filter
+                if scenario_filter:
+                    if scenario_filter not in full_path:
+                        continue
+                log_files.append(full_path)
     return sorted(log_files)
 
 
@@ -180,6 +196,21 @@ def main():
         default=30,
         help="Seconds between batch status polls (default: 30)",
     )
+    parser.add_argument(
+        "--model",
+        help="Filter logs to a specific model (e.g. 'moonshotai/kimi-k2.5')",
+    )
+    parser.add_argument(
+        "--scenario",
+        help="Filter logs to a specific scenario (e.g. 'child_protection')",
+    )
+    parser.add_argument(
+        "--judges",
+        nargs="+",
+        choices=["regex", "blackbox", "glassbox"],
+        default=["regex", "blackbox", "glassbox"],
+        help="Which judges to run (default: all three). E.g. --judges regex blackbox",
+    )
     args = parser.parse_args()
 
     # Load judge config
@@ -194,22 +225,27 @@ def main():
     if args.log_file:
         log_files = [args.log_file]
     else:
-        log_files = discover_log_files(args.logs_dir)
+        log_files = discover_log_files(args.logs_dir, model_filter=args.model, scenario_filter=args.scenario)
 
     if not log_files:
         print("No log files found to judge.")
         return
 
+    enabled_judges = set(args.judges)
+    run_llm = bool({"blackbox", "glassbox"} & enabled_judges)
+
     print(f"\n{'='*60}")
     print(f"Judging {len(log_files)} experiment log(s)")
-    print(f"  Model: {model}")
-    print(f"  Mode: {args.mode}")
+    print(f"  Judges: {', '.join(sorted(enabled_judges))}")
+    if run_llm:
+        print(f"  Judge model: {model}")
+        print(f"  Mode: {args.mode}")
     print(f"  Output: {args.output}")
     print(f"  Judge logs: {judge_log_dir}")
     print(f"{'='*60}\n")
 
-    if args.mode == "single":
-        # Synchronous mode — judge one at a time
+    if not run_llm or args.mode == "single":
+        # Regex-only mode or synchronous mode — judge one at a time
         verdicts = []
         for i, log_path in enumerate(log_files, 1):
             print(f"[{i}/{len(log_files)}] Judging: {log_path}")
@@ -218,16 +254,20 @@ def main():
                     log_path=log_path,
                     logs_dir=args.logs_dir,
                     scenarios_dir=args.scenarios_dir,
+                    enabled_judges=enabled_judges,
                 )
                 verdicts.append(verdict)
 
                 # Save judge log
                 jlog = save_judge_log(verdict, judge_log_dir, judge_model=model)
-                print(f"  → regex={verdict['regex']} "
-                      f"blackbox={verdict['blackbox']['category']} "
-                      f"glassbox={verdict['glassbox']['category']}/"
-                      f"{verdict['glassbox']['sophistication']}")
-                print(f"  → Judge log: {jlog}")
+                parts = []
+                if "regex" in enabled_judges:
+                    parts.append(f"regex={verdict['regex']}")
+                if "blackbox" in enabled_judges:
+                    parts.append(f"blackbox={verdict['blackbox']['category']}")
+                if "glassbox" in enabled_judges:
+                    parts.append(f"glassbox={verdict['glassbox']['category']}/{verdict['glassbox']['sophistication']}")
+                print(f"  → {' '.join(parts)}")
             except Exception as e:
                 print(f"  ERROR: {e}")
                 import traceback
@@ -239,14 +279,16 @@ def main():
 
     else:
         # Batch mode — use Anthropic Batch API
+        checks_per_log = len({"blackbox", "glassbox"} & enabled_judges)
         print("Preparing batch requests...")
         batch_requests, metadata_map = judge.prepare_batch_requests(
             log_paths=log_files,
             logs_dir=args.logs_dir,
             scenarios_dir=args.scenarios_dir,
+            enabled_judges=enabled_judges,
         )
 
-        print(f"  {len(batch_requests)} API requests ({len(log_files)} logs × 2 checks)")
+        print(f"  {len(batch_requests)} API requests ({len(log_files)} logs × {checks_per_log} checks)")
 
         print("Submitting batch...")
         batch_id = judge.submit_batch(batch_requests)
@@ -263,10 +305,14 @@ def main():
             jlog = save_judge_log(verdict, judge_log_dir, judge_model=model)
             bb = verdict.get("blackbox", {})
             gb = verdict.get("glassbox", {})
-            print(f"  {verdict['run_id']}: "
-                  f"regex={verdict.get('regex', '?')} "
-                  f"blackbox={bb.get('category', '?')} "
-                  f"glassbox={gb.get('category', '?')}/{gb.get('sophistication', '?')}")
+            parts = [f"{verdict['run_id']}:"]
+            if "regex" in enabled_judges:
+                parts.append(f"regex={verdict.get('regex', '?')}")
+            if "blackbox" in enabled_judges:
+                parts.append(f"blackbox={bb.get('category', '?')}")
+            if "glassbox" in enabled_judges:
+                parts.append(f"glassbox={gb.get('category', '?')}/{gb.get('sophistication', '?')}")
+            print(f"  {' '.join(parts)}")
 
         # Write CSV
         write_csv(args.output, verdicts)

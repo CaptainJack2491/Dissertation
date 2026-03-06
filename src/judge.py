@@ -451,6 +451,7 @@ class Judge:
         log_path: str,
         logs_dir: str = "logs",
         scenarios_dir: str = "scenarios",
+        enabled_judges: set = None,
     ) -> Dict[str, Any]:
         """Judge a single experiment log synchronously (non-batch).
 
@@ -458,11 +459,16 @@ class Judge:
             log_path: Path to the experiment log JSON.
             logs_dir: Root logs directory (for finding baselines).
             scenarios_dir: Root scenarios directory (for regex rules).
+            enabled_judges: Set of judges to run ('regex', 'blackbox', 'glassbox').
 
         Returns:
             Combined verdict dict.
         """
-        if not self.client:
+        if enabled_judges is None:
+            enabled_judges = {"regex", "blackbox", "glassbox"}
+
+        run_llm = bool({"blackbox", "glassbox"} & enabled_judges)
+        if run_llm and not self.client:
             raise RuntimeError("ANTHROPIC_API_KEY not set — cannot run LLM judge checks")
 
         log_data = self.load_log(log_path)
@@ -472,56 +478,63 @@ class Judge:
 
         # Extract data
         model_output = extract_model_output(conversation)
-        system_prompt = extract_system_prompt(conversation)
-        reasoning_trace = extract_reasoning_trace(conversation)
-        baseline_output, baseline_log_data = self.load_baseline(log_data, logs_dir)
-
-        # Load source docs from baseline if available, otherwise from experiment log itself
-        if baseline_log_data:
-            source_docs = self.load_source_documents(baseline_log_data)
-        else:
-            import sys
-            print(f"  [WARN] No baseline found for {scenario} — using experiment log for source docs", file=sys.stderr)
-            source_docs = self.load_source_documents(log_data)
-
-        if not baseline_output:
-            import sys
-            print(f"  [WARN] No baseline output for {scenario} — blackbox judge will compare against source docs only", file=sys.stderr)
-            baseline_output = "(No baseline available)"
 
         # 1. Regex check
-        scenario_path = os.path.join(scenarios_dir, scenario)
-        regex_checker = self._get_regex_checker(scenario_path)
-        regex_result = regex_checker.check(model_output)
-
-        # Load benign goal (task description) for blackbox context
-        benign_goal_path = os.path.join(scenario_path, "benign_goal.md")
-        task_description = ""
-        if os.path.exists(benign_goal_path):
-            with open(benign_goal_path, "r", encoding="utf-8") as f:
-                task_description = f.read().strip()
+        regex_result = {"verdict": "", "details": []}
+        if "regex" in enabled_judges:
+            scenario_path = os.path.join(scenarios_dir, scenario)
+            regex_checker = self._get_regex_checker(scenario_path)
+            regex_result = regex_checker.check(model_output)
 
         # 2. Blackbox check
-        bb_prompt = self.blackbox.build_prompt(model_output, baseline_output, source_docs, task_description)
-        bb_response = self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            temperature=self.temperature,
-            messages=[{"role": "user", "content": bb_prompt}],
-        )
-        bb_text = bb_response.content[0].text
-        bb_result = self.blackbox.parse_response(bb_text)
+        bb_result = {"category": "", "justification": "", "raw_response": ""}
+        if "blackbox" in enabled_judges:
+            system_prompt = extract_system_prompt(conversation)
+            baseline_output, baseline_log_data = self.load_baseline(log_data, logs_dir)
+
+            if baseline_log_data:
+                source_docs = self.load_source_documents(baseline_log_data)
+            else:
+                import sys
+                print(f"  [WARN] No baseline found for {scenario} — using experiment log for source docs", file=sys.stderr)
+                source_docs = self.load_source_documents(log_data)
+
+            if not baseline_output:
+                import sys
+                print(f"  [WARN] No baseline output for {scenario} — blackbox judge will compare against source docs only", file=sys.stderr)
+                baseline_output = "(No baseline available)"
+
+            scenario_path = os.path.join(scenarios_dir, scenario)
+            benign_goal_path = os.path.join(scenario_path, "benign_goal.md")
+            task_description = ""
+            if os.path.exists(benign_goal_path):
+                with open(benign_goal_path, "r", encoding="utf-8") as f:
+                    task_description = f.read().strip()
+
+            bb_prompt = self.blackbox.build_prompt(model_output, baseline_output, source_docs, task_description)
+            bb_response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                temperature=self.temperature,
+                messages=[{"role": "user", "content": bb_prompt}],
+            )
+            bb_text = bb_response.content[0].text
+            bb_result = self.blackbox.parse_response(bb_text)
 
         # 3. Glassbox check
-        gb_prompt = self.glassbox.build_prompt(system_prompt, reasoning_trace, model_output)
-        gb_response = self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            temperature=self.temperature,
-            messages=[{"role": "user", "content": gb_prompt}],
-        )
-        gb_text = gb_response.content[0].text
-        gb_result = self.glassbox.parse_response(gb_text)
+        gb_result = {"category": "", "sophistication": "", "justification": "", "raw_response": ""}
+        if "glassbox" in enabled_judges:
+            system_prompt = extract_system_prompt(conversation)
+            reasoning_trace = extract_reasoning_trace(conversation)
+            gb_prompt = self.glassbox.build_prompt(system_prompt, reasoning_trace, model_output)
+            gb_response = self.client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                temperature=self.temperature,
+                messages=[{"role": "user", "content": gb_prompt}],
+            )
+            gb_text = gb_response.content[0].text
+            gb_result = self.glassbox.parse_response(gb_text)
 
         return {
             "run_id": run_id,
@@ -543,6 +556,7 @@ class Judge:
         log_paths: List[str],
         logs_dir: str = "logs",
         scenarios_dir: str = "scenarios",
+        enabled_judges: set = None,
     ) -> tuple:
         """Prepare batch requests for multiple log files.
 
@@ -551,6 +565,9 @@ class Judge:
             - batch_requests: list of dicts for Anthropic batch API
             - metadata_map: dict mapping custom_id → metadata needed to reassemble results
         """
+        if enabled_judges is None:
+            enabled_judges = {"regex", "blackbox", "glassbox"}
+
         batch_requests = []
         metadata_map = {}
 
@@ -561,77 +578,89 @@ class Judge:
             run_id = log_data.get("run_id", os.path.basename(log_path))
 
             model_output = extract_model_output(conversation)
-            system_prompt = extract_system_prompt(conversation)
-            reasoning_trace = extract_reasoning_trace(conversation)
-            baseline_output, baseline_log_data = self.load_baseline(log_data, logs_dir)
 
-            # Load source docs from baseline if available, otherwise from experiment log
-            if baseline_log_data:
-                source_docs = self.load_source_documents(baseline_log_data)
-            else:
-                import sys
-                print(f"  [WARN] No baseline found for {scenario} — using experiment log for source docs", file=sys.stderr)
-                source_docs = self.load_source_documents(log_data)
+            # Regex check (local, no API) — always run if enabled
+            regex_result = {"verdict": "", "details": []}
+            if "regex" in enabled_judges:
+                scenario_path = os.path.join(scenarios_dir, scenario)
+                regex_checker = self._get_regex_checker(scenario_path)
+                regex_result = regex_checker.check(model_output)
 
-            if not baseline_output:
-                baseline_output = "(No baseline available)"
-
-            # Regex check (local, no API)
-            scenario_path = os.path.join(scenarios_dir, scenario)
-            regex_checker = self._get_regex_checker(scenario_path)
-            regex_result = regex_checker.check(model_output)
-
-            # Load benign goal (task description) for blackbox context
-            benign_goal_path = os.path.join(scenario_path, "benign_goal.md")
-            task_description = ""
-            if os.path.exists(benign_goal_path):
-                with open(benign_goal_path, "r", encoding="utf-8") as f:
-                    task_description = f.read().strip()
-
-            # Store metadata — custom_id must be ≤64 chars for Anthropic Batch API
+            # Store metadata
             id_hash = hashlib.sha256(run_id.encode()).hexdigest()[:8]
-            idx = len(batch_requests) // 2
-            bb_id = f"bb_{idx:03d}_{id_hash}"
-            gb_id = f"gb_{idx:03d}_{id_hash}"
-
-            metadata_map[bb_id] = {
-                "type": "blackbox",
-                "log_path": log_path,
-                "run_id": run_id,
-                "model": log_data.get("model", ""),
-                "scenario": scenario,
-                "oversight": log_data.get("oversight_level", ""),
-                "regex_result": regex_result,
-            }
-            metadata_map[gb_id] = {
-                "type": "glassbox",
-                "log_path": log_path,
-                "run_id": run_id,
-            }
+            idx = len(batch_requests) // 2 if len(enabled_judges & {"blackbox", "glassbox"}) == 2 else len(batch_requests)
 
             # Blackbox request
-            bb_prompt = self.blackbox.build_prompt(model_output, baseline_output, source_docs, task_description)
-            batch_requests.append({
-                "custom_id": bb_id,
-                "params": {
-                    "model": self.model,
-                    "max_tokens": 4096,
-                    "temperature": self.temperature,
-                    "messages": [{"role": "user", "content": bb_prompt}],
-                },
-            })
+            if "blackbox" in enabled_judges:
+                baseline_output, baseline_log_data = self.load_baseline(log_data, logs_dir)
+
+                if baseline_log_data:
+                    source_docs = self.load_source_documents(baseline_log_data)
+                else:
+                    import sys
+                    print(f"  [WARN] No baseline found for {scenario} — using experiment log for source docs", file=sys.stderr)
+                    source_docs = self.load_source_documents(log_data)
+
+                if not baseline_output:
+                    baseline_output = "(No baseline available)"
+
+                scenario_path = os.path.join(scenarios_dir, scenario)
+                benign_goal_path = os.path.join(scenario_path, "benign_goal.md")
+                task_description = ""
+                if os.path.exists(benign_goal_path):
+                    with open(benign_goal_path, "r", encoding="utf-8") as f:
+                        task_description = f.read().strip()
+
+                bb_id = f"bb_{idx:03d}_{id_hash}"
+                metadata_map[bb_id] = {
+                    "type": "blackbox",
+                    "log_path": log_path,
+                    "run_id": run_id,
+                    "model": log_data.get("model", ""),
+                    "scenario": scenario,
+                    "oversight": log_data.get("oversight_level", ""),
+                    "regex_result": regex_result,
+                }
+
+                bb_prompt = self.blackbox.build_prompt(model_output, baseline_output, source_docs, task_description)
+                batch_requests.append({
+                    "custom_id": bb_id,
+                    "params": {
+                        "model": self.model,
+                        "max_tokens": 4096,
+                        "temperature": self.temperature,
+                        "messages": [{"role": "user", "content": bb_prompt}],
+                    },
+                })
 
             # Glassbox request
-            gb_prompt = self.glassbox.build_prompt(system_prompt, reasoning_trace, model_output)
-            batch_requests.append({
-                "custom_id": gb_id,
-                "params": {
-                    "model": self.model,
-                    "max_tokens": 4096,
-                    "temperature": self.temperature,
-                    "messages": [{"role": "user", "content": gb_prompt}],
-                },
-            })
+            if "glassbox" in enabled_judges:
+                system_prompt = extract_system_prompt(conversation)
+                reasoning_trace = extract_reasoning_trace(conversation)
+
+                gb_id = f"gb_{idx:03d}_{id_hash}"
+                metadata_map[gb_id] = {
+                    "type": "glassbox",
+                    "log_path": log_path,
+                    "run_id": run_id,
+                }
+                # Also store regex result in glassbox metadata if blackbox is disabled
+                if "blackbox" not in enabled_judges:
+                    metadata_map[gb_id]["model"] = log_data.get("model", "")
+                    metadata_map[gb_id]["scenario"] = scenario
+                    metadata_map[gb_id]["oversight"] = log_data.get("oversight_level", "")
+                    metadata_map[gb_id]["regex_result"] = regex_result
+
+                gb_prompt = self.glassbox.build_prompt(system_prompt, reasoning_trace, model_output)
+                batch_requests.append({
+                    "custom_id": gb_id,
+                    "params": {
+                        "model": self.model,
+                        "max_tokens": 4096,
+                        "temperature": self.temperature,
+                        "messages": [{"role": "user", "content": gb_prompt}],
+                    },
+                })
 
         return batch_requests, metadata_map
 
