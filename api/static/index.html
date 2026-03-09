@@ -3,109 +3,142 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Agent Reasoning Experiment Framework</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>AI Reasoning Framework</title>
+    <!-- CSS Modules -->
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/terminal.css">
+    <link rel="stylesheet" href="/static/css/results.css">
+    <!-- Google Fonts - Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🤖 AI Agent Reasoning Experiment Framework</h1>
-            <p class="subtitle">Run experiments, analyze deception, and visualize results</p>
-        </header>
+    <div class="dashboard-root">
+        <!-- Sidebar: Configuration -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <h1>AI Agent Framework</h1>
+            </div>
 
-        <main>
-            <!-- Configuration Section -->
-            <section class="card" id="config-section">
-                <h2>⚙️ Configuration</h2>
-                <div class="config-grid">
-                    <div class="config-item">
-                        <label for="scenario-select">Scenario</label>
-                        <select id="scenario-select">
-                            <option value="">Loading...</option>
-                        </select>
-                    </div>
-                    <div class="config-item">
-                        <label for="model-select">Model</label>
-                        <select id="model-select">
-                            <option value="">Loading...</option>
-                        </select>
-                    </div>
-                    <div class="config-item">
-                        <label for="oversight-select">Oversight Level</label>
-                        <select id="oversight-select">
-                            <option value="low">Low</option>
-                            <option value="mid">Mid</option>
-                            <option value="high">High</option>
-                        </select>
-                    </div>
-                    <div class="config-item">
-                        <label for="runs-input">Runs</label>
-                        <input type="number" id="runs-input" value="1" min="1" max="100">
-                    </div>
+            <nav class="config-panel">
+                <div class="form-group">
+                    <label class="form-label">Scenario</label>
+                    <select id="scenario-select" class="input-field">
+                        <option value="">Loading...</option>
+                    </select>
                 </div>
-                <div class="config-actions">
-                    <button id="run-btn" class="btn btn-primary">
-                        <span class="btn-text">▶ Run Experiment</span>
-                        <span class="btn-spinner hidden">⏳ Running...</span>
-                    </button>
-                    <button id="cancel-btn" class="btn btn-danger" disabled>⏹ Cancel</button>
-                </div>
-            </section>
 
-            <!-- Status Section -->
-            <section class="card" id="status-section">
-                <h2>📊 Status</h2>
-                <div class="status-indicator">
+                <div class="form-group">
+                    <label class="form-label">Model</label>
+                    <select id="model-select" class="input-field">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Oversight</label>
+                    <select id="oversight-select" class="input-field">
+                        <option value="low">Low</option>
+                        <option value="mid">Mid</option>
+                        <option value="high">High</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Run Count</label>
+                    <input type="number" id="runs-input" class="input-field" value="1" min="1" max="100">
+                </div>
+
+                <div class="sidebar-actions" style="margin-top: auto; display: flex; flex-direction: column; gap: var(--space-sm);">
+                    <button id="run-btn" class="btn btn-primary">Run Experiment</button>
+                    <button id="cancel-btn" class="btn btn-danger" disabled>Stop Run</button>
+                </div>
+            </nav>
+
+            <div class="status-footer">
+                <div class="form-label">System Status</div>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
                     <span id="status-badge" class="badge badge-idle">Idle</span>
-                    <span id="status-time"></span>
+                    <span id="status-time" style="font-size: 0.7rem; color: var(--color-text-muted);"></span>
                 </div>
-            </section>
+            </div>
+        </aside>
 
-            <!-- Logs Section -->
-            <section class="card" id="logs-section">
-                <h2>📜 Live Logs</h2>
-                <div class="logs-container" id="logs-container">
-                    <div class="logs-empty">Run an experiment to see logs...</div>
+        <!-- Main Viewport: Results & Analytics -->
+        <main class="main-viewport">
+            <header class="app-header">
+                <div class="tab-nav" style="border-bottom: none; background: none; padding: 0;">
+                    <button class="tab-trigger active" data-tab="csv">Raw Data</button>
+                    <button class="tab-trigger" data-tab="images">Visuals</button>
+                    <button class="tab-trigger" data-tab="judge">Judge Reports</button>
                 </div>
-                <div class="logs-actions">
-                    <button id="clear-logs-btn" class="btn btn-secondary">Clear Logs</button>
-                </div>
-            </section>
+            </header>
 
-            <!-- Results Section -->
-            <section class="card" id="results-section">
-                <h2>📈 Results</h2>
-                <div class="tabs">
-                    <button class="tab-btn active" data-tab="csv">CSV Data</button>
-                    <button class="tab-btn" data-tab="images">Visualizations</button>
-                    <button class="tab-btn" data-tab="judge">Judge Results</button>
-                </div>
-                
-                <div class="tab-content active" id="tab-csv">
-                    <div id="csv-results">
-                        <div class="empty-state">No results yet. Run an experiment first.</div>
+            <div class="viewport-content">
+                <div id="tab-csv" class="tab-panel active">
+                    <div class="results-controls">
+                        <label class="form-label">Select CSV:</label>
+                        <select id="csv-file-select" class="input-field" style="max-width: 400px; display: inline-block; margin-left: var(--space-sm);">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div id="csv-results" class="results-container">
+                        <div class="empty-state">No active data.</div>
                     </div>
                 </div>
                 
-                <div class="tab-content" id="tab-images">
+                <div id="tab-images" class="tab-panel">
+                    <div class="results-controls">
+                        <label class="form-label">Data Source:</label>
+                        <select id="chart-file-select" class="input-field" style="max-width: 400px; display: inline-block; margin-left: var(--space-sm);">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div id="interactive-charts" class="image-grid" style="margin-top: var(--space-md);">
+                        <div class="empty-state" style="grid-column: 1 / -1;">Select a CSV to generate visuals.</div>
+                    </div>
+                    
+                    <h3 style="margin: var(--space-lg) var(--space-lg) var(--space-sm); font-size: 0.8rem; text-transform: uppercase; color: var(--color-text-muted);">Saved Visualizations</h3>
                     <div id="image-results" class="image-grid">
-                        <div class="empty-state">No visualizations yet. Run an experiment first.</div>
+                        <div class="empty-state" style="grid-column: 1 / -1;">No visualizations generated.</div>
                     </div>
                 </div>
                 
-                <div class="tab-content" id="tab-judge">
-                    <div id="judge-results">
-                        <div class="empty-state">No judge results yet.</div>
+                <div id="tab-judge" class="tab-panel">
+                    <div class="results-controls">
+                        <label class="form-label">Select Report:</label>
+                        <select id="judge-file-select" class="input-field" style="max-width: 400px; display: inline-block; margin-left: var(--space-sm);">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div id="judge-results" class="results-container">
+                        <div class="empty-state">No judge reports.</div>
                     </div>
                 </div>
-            </section>
+            </div>
         </main>
 
-        <footer>
-            <p>AI Agent Reasoning Experiment Framework • Dissertation Project</p>
-        </footer>
+        <!-- Terminal Dock: Live Feedback -->
+        <section class="terminal-dock">
+            <div class="terminal-header">
+                <span class="terminal-title">Event Log</span>
+                <div class="terminal-actions">
+                    <button id="clear-logs-btn" class="btn-terminal">Clear</button>
+                    <button id="scroll-lock-btn" class="btn-terminal active">Auto-Scroll</button>
+                </div>
+            </div>
+            <div id="logs-container" class="terminal-body">
+                <div class="terminal-line muted">System ready. Waiting for run...</div>
+            </div>
+        </section>
     </div>
 
-    <script src="/static/app.js"></script>
+    <!-- Main Entry Point -->
+    <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

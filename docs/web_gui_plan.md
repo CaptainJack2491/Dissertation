@@ -15,7 +15,7 @@ A lightweight, decoupled web interface for the AI Agent Reasoning Experiment Fra
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Web GUI (Frontend)                      │
-│                 Vanilla JS + HTML + CSS                     │
+│        Modular ES6 Vanilla JS + HTML + Chart.js             │
 └────────────────────────────┬────────────────────────────────┘
                              │ HTTP / SSE
 ┌────────────────────────────▼────────────────────────────────┐
@@ -35,9 +35,9 @@ A lightweight, decoupled web interface for the AI Agent Reasoning Experiment Fra
 ### Why This Approach?
 
 1. **Zero Changes to Core**: The dissertation code remains untouched and pure.
-2. **Modular**: Adding new scenarios automatically updates the GUI.
-3. **No Bloat**: FastAPI + Vanilla JS. Fast, reactive, minimal dependencies.
-4. **Showcase-Ready**: Clean dashboard for non-technical users.
+2. **Modular Frontend**: Splitting JS and CSS into logical components prevents a monolithic file structure, making future expansions (like new charts) effortless. 
+3. **No Build Step**: Native ES6 modules mean no Webpack or React overhead.
+4. **Showcase-Ready**: Clean, dark-themed "Control Room" dashboard for non-technical users.
 
 ---
 
@@ -55,10 +55,13 @@ dissertation/
 │   │   ├── runs.py            # Experiment run triggers
 │   │   └── results.py         # Results/logs fetching
 │   └── static/               # Frontend (served by FastAPI)
-│       ├── index.html
-│       ├── app.js
-│       ├── style.css
-│       └── assets/
+│       ├── index.html        # Main DOM
+│       ├── css/              # Modular CSS (base, layout, components, etc.)
+│       └── js/               # ES6 Modules
+│           ├── main.js       # Entry point
+│           ├── api.js        # API wrapper
+│           ├── ui.js         # Global DOM utilities
+│           └── components/   # Specific feature logic (results, config, terminal)
 │
 ├── src/                      # Core project (UNCHANGED)
 │   ├── main.py
@@ -102,14 +105,16 @@ dissertation/
 | DELETE | `/api/run` | Cancel current run |
 | GET | `/api/logs/stream` | Server-Sent Events (SSE) for live log streaming |
 
-### 4. Results
+### 4. Results & Analysis
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/results` | Get experiment results (CSV data as JSON) |
+| GET | `/api/results/files`| List all CSV files in the logs directory |
+| GET | `/api/results` | Get experiment results (CSV data as JSON), accepts `?file=` |
 | GET | `/api/results/images` | List generated visualization images |
 | GET | `/api/results/images/{name}` | Serve a specific image |
-| GET | `/api/judge/results` | Get judge results if available |
+| GET | `/api/judge/files`| List all judge reports in the configured log directory |
+| GET | `/api/judge/results` | Get judge results as JSON, accepts `?file=` |
 
 ---
 
@@ -123,64 +128,27 @@ dissertation/
 4. **Scenario Discovery**: Auto-scan `scenarios/` directory
 5. **Run Trigger**: Execute `uv run src/main.py` as subprocess
 6. **Log Streaming**: Implement SSE endpoint to tail log file
-7. **Results Endpoint**: Read CSV files and serve as JSON
+7. **Results Endpoint**: Read CSV/JSON files dynamically based on URL queries.
 
-### Phase 2: Frontend (Vanilla JS)
+### Phase 2: Frontend (Vanilla ES6)
 
-1. **Static Files**: Create `api/static/` directory
-2. **index.html**: Main dashboard layout
-3. **style.css**: Clean, minimal styling
-4. **app.js**: 
-   - Fetch scenarios/models and populate dropdowns
-   - Handle "Run" button click → POST to `/api/run`
-   - Connect to `/api/logs/stream` for live output
-   - Display results in tables
-   - Render images from `/api/results/images`
+1. **Static Architecture**: Implement a modular JS structure (`js/components/`).
+2. **Dashboard Layout**: Fixed left sidebar for configuration, main viewport for data analysis, and a docked live terminal.
+3. **Aesthetics**: "Industrial Control Room" dark theme (high contrast, sans-serif UI, monospace terminal).
+4. **Live Data**: Connect `EventSource` to SSE endpoint for a real-time log feed.
+5. **Interactive Visualizations**: Integrate `Chart.js` to dynamically generate pie and bar charts from CSV data endpoints.
 
 ### Phase 3: Integration & Polish
 
-1. **Auto-discovery**: Ensure new scenarios appear automatically
-2. **Error Handling**: Graceful errors for missing API keys, etc.
-3. **Run Status**: Visual indicator (spinner/green check) during runs
-
----
-
-## Key Implementation Details
-
-### Log File Location
-
-The log file path is **not hardcoded**. It is read dynamically from `config.yaml` at runtime:
-
-```python
-# From config_loader.py
-logging_config = config.logging_config
-log_file = logging_config.get('file')  # e.g., 'logs/gpt/experiment.log'
-```
-
-The API uses this to tail the correct file during live streaming.
-
-### Non-Blocking Runs
-
-Experiment runs can take a long time. The API uses `asyncio` or `subprocess.Popen` to start the run in the background, returning a `run_id` or status immediately. The frontend can poll for status or stream logs in real-time.
-
-### Server-Sent Events (SSE) for Log Streaming
-
-Instead of WebSockets (which add bloat), we use SSE:
-
-```python
-@app.get("/api/logs/stream")
-async def log_stream():
-    async def event_generator():
-        # Tail log file line by line
-        yield {"event": "log", "data": line}
-    return EventSourceResponse(event_generator())
-```
+1. **Auto-discovery**: Ensure new scenarios and result files populate dropdowns automatically.
+2. **Data Parsing**: Ensure long text fields (like judge justifications) wrap nicely in tables.
+3. **Chart Cleanup**: Ensure the Chart.js instances are destroyed and re-created cleanly when switching data sources.
 
 ---
 
 ## Dependencies
 
-New dependencies to add via `uv add`:
+Backend dependencies added via `uv`:
 
 ```toml
 [dependencies]
@@ -189,7 +157,7 @@ uvicorn = {extras = ["standard"], version = ">=0.32.0"}
 sse-starlette = ">=2.0.0"
 ```
 
-Frontend uses **zero** external dependencies (pure Vanilla JS).
+Frontend uses `Chart.js` via CDN. No other external dependencies are required.
 
 ---
 
@@ -205,13 +173,15 @@ uv run api/server.py
 
 ---
 
-## Future Considerations (Out of Scope for Initial Version)
+## Features Implemented
 
-- [ ] Authentication (not needed for local dissertation showcase)
-- [ ] Multi-user support
-- [ ] Judge runner integration via GUI
-- [ ] Dark mode
-- [ ] Mobile responsiveness
+- [x] Run Trigger and Cancellation
+- [x] Live log tailing via SSE
+- [x] High-contrast Dark Mode ("Control Room" aesthetic)
+- [x] Dynamic File Selection for CSV/Judge Reports
+- [x] Interactive Chart.js Visualizations (Pie & Bar charts based on columns)
+- [x] Responsive data tables with word-wrapping
+- [x] Modular ES6 Javascript (No build step)
 
 ---
 

@@ -362,17 +362,40 @@ async def log_stream():
 # Results Endpoints
 # ============================================================================
 
+@app.get("/api/results/files")
+async def get_results_files():
+    """List all CSV files in the output directory."""
+    config = run_manager.config
+    if not config:
+        raise HTTPException(status_code=500, detail="Config not loaded")
+    
+    output_dir = PROJECT_ROOT / config.output_dir
+    if not output_dir.exists():
+        return []
+    
+    files = []
+    for p in output_dir.rglob("*.csv"):
+        files.append(str(p.relative_to(output_dir)))
+    return sorted(files)
+
 @app.get("/api/results")
-async def get_results():
-    """Get experiment results as JSON."""
+async def get_results(file: str = None):
+    """Get experiment results as JSON, optionally for a specific file."""
     config = run_manager.config
     if not config:
         raise HTTPException(status_code=500, detail="Config not loaded")
     
     output_dir = PROJECT_ROOT / config.output_dir
     
-    # Look for CSV files
-    csv_files = list(output_dir.glob("*.csv")) if output_dir.exists() else []
+    csv_files = []
+    if file:
+        file_path = output_dir / file
+        if not file_path.exists() or ".." in file:
+            raise HTTPException(status_code=404, detail="File not found")
+        csv_files.append(file_path)
+    else:
+        # Backward compatibility or default empty
+        csv_files = list(output_dir.glob("*.csv")) if output_dir.exists() else []
     
     results = {}
     for csv_file in csv_files:
@@ -448,40 +471,70 @@ async def get_result_image(image_name: str):
 # Judge Results Endpoints
 # ============================================================================
 
+@app.get("/api/judge/files")
+async def get_judge_files():
+    """Get list of judge result files."""
+    config = run_manager.config
+    if not config:
+        raise HTTPException(status_code=500, detail="Config not loaded")
+    
+    judge_log_dir = config._config.get('judge', {}).get('log_dir', 'judge_logs')
+    judge_dir = PROJECT_ROOT / judge_log_dir
+    
+    if not judge_dir.exists():
+        return []
+    
+    files = []
+    for p in judge_dir.rglob("*"):
+        if p.suffix in ['.csv', '.json']:
+            files.append(str(p.relative_to(judge_dir)))
+    return sorted(files)
+
+
 @app.get("/api/judge/results")
-async def get_judge_results():
+async def get_judge_results(file: str = None):
     """Get judge results if available."""
     config = run_manager.config
     if not config:
         raise HTTPException(status_code=500, detail="Config not loaded")
     
-    judge_log_dir = config.logging_config.get('file')
-    if judge_log_dir:
-        judge_dir = Path(judge_log_dir).parent / "judge"
-    else:
-        judge_dir = PROJECT_ROOT / "logs" / "judge"
+    judge_log_dir = config._config.get('judge', {}).get('log_dir', 'judge_logs')
+    judge_dir = PROJECT_ROOT / judge_log_dir
     
     if not judge_dir.exists():
         return {"message": "No judge results found"}
     
-    # Look for judge result files
-    import glob
-    result_files = list(judge_dir.glob("*.csv")) + list(judge_dir.glob("*.json"))
+    result_files = []
+    if file:
+        file_path = judge_dir / file
+        if not file_path.exists() or ".." in file:
+            raise HTTPException(status_code=404, detail="File not found")
+        result_files.append(file_path)
+    else:
+        # Default empty or backward compatibility
+        import glob
+        result_files = list(judge_dir.glob("*.csv")) + list(judge_dir.glob("*.json"))
     
     results = {}
     for rf in result_files:
         if rf.suffix == '.csv':
             import pandas as pd
-            df = pd.read_csv(rf)
-            results[rf.stem] = {
-                "type": "csv",
-                "columns": df.columns.tolist(),
-                "data": df.to_dict(orient="records")
-            }
+            try:
+                df = pd.read_csv(rf)
+                results[rf.stem] = {
+                    "type": "csv",
+                    "columns": df.columns.tolist(),
+                    "data": df.to_dict(orient="records")
+                }
+            except Exception as e:
+                results[rf.stem] = {"error": str(e)}
         elif rf.suffix == '.json':
             import json
-            with open(rf) as f:
-                results[rf.stem] = {"type": "json", "data": json.load(f)}
+            try:
+                with open(rf) as f:
+                    results[rf.stem] = {"type": "json", "data": json.load(f)}
+            except Exception as e:
+                results[rf.stem] = {"error": str(e)}
     
     return results
 
