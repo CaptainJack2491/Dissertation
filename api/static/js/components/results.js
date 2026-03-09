@@ -97,27 +97,46 @@ export const results = {
             if (row.oversight) oversights.add(row.oversight);
         });
 
-        ui.elements.filterModel.innerHTML = '<option value="all">All Models</option>' + 
-            Array.from(models).sort().map(m => `<option value="${m}">${m}</option>`).join('');
-            
-        ui.elements.filterScenario.innerHTML = '<option value="all">All Scenarios</option>' + 
-            Array.from(scenarios).sort().map(s => `<option value="${s}">${s}</option>`).join('');
-            
-        ui.elements.filterOversight.innerHTML = '<option value="all">All Levels</option>' + 
-            Array.from(oversights).sort().map(o => `<option value="${o}">${o}</option>`).join('');
+        this.renderCheckboxList(ui.elements.filterModelList, Array.from(models).sort(), 'model');
+        this.renderCheckboxList(ui.elements.filterScenarioList, Array.from(scenarios).sort(), 'scenario');
+        
+        // Custom Oversight Sorting
+        const oversightPriority = { 'low': 0, 'mid': 1, 'medium': 1, 'high': 2 };
+        const sortedOversights = Array.from(oversights).sort((a, b) => {
+            const pA = oversightPriority[a.toLowerCase()] ?? 99;
+            const pB = oversightPriority[b.toLowerCase()] ?? 99;
+            return pA - pB;
+        });
+        this.renderCheckboxList(ui.elements.filterOversightList, sortedOversights, 'oversight');
+    },
+
+    renderCheckboxList(container, items, type) {
+        if (items.length === 0) {
+            container.innerHTML = '<div class="checkbox-item"><span>No data</span></div>';
+            return;
+        }
+
+        container.innerHTML = items.map(item => `
+            <label class="checkbox-item">
+                <input type="checkbox" name="filter-${type}" value="${item}" checked>
+                <span title="${item}">${item}</span>
+            </label>
+        `).join('');
     },
 
     applyFilters() {
         if (!currentCsvData) return;
 
-        const modelFilter = ui.elements.filterModel.value;
-        const scenarioFilter = ui.elements.filterScenario.value;
-        const oversightFilter = ui.elements.filterOversight.value;
+        const getChecked = (name) => Array.from(document.querySelectorAll(`input[name="filter-${name}"]:checked`)).map(cb => cb.value);
+
+        const modelFilters = getChecked('model');
+        const scenarioFilters = getChecked('scenario');
+        const oversightFilters = getChecked('oversight');
 
         const filteredData = currentCsvData.filter(row => {
-            return (modelFilter === 'all' || row.model === modelFilter) &&
-                   (scenarioFilter === 'all' || row.scenario === scenarioFilter) &&
-                   (oversightFilter === 'all' || row.oversight === oversightFilter);
+            return (modelFilters.length === 0 || modelFilters.includes(row.model)) &&
+                   (scenarioFilters.length === 0 || scenarioFilters.includes(row.scenario)) &&
+                   (oversightFilters.length === 0 || oversightFilters.includes(row.oversight));
         });
 
         ui.elements.dataStats.textContent = `Showing ${filteredData.length} of ${currentCsvData.length} records`;
@@ -219,7 +238,16 @@ export const results = {
             groups.add(gVal);
         });
 
-        const labels = Object.keys(matrix);
+        let labels = Object.keys(matrix);
+
+        // Custom sorting for X-axis labels (like Oversight)
+        if (xCol === 'oversight') {
+            const oversightPriority = { 'low': 0, 'mid': 1, 'medium': 1, 'high': 2 };
+            labels.sort((a, b) => (oversightPriority[a.toLowerCase()] ?? 99) - (oversightPriority[b.toLowerCase()] ?? 99));
+        } else {
+            labels.sort();
+        }
+
         const datasets = Array.from(groups).map((group, i) => {
             const colors = ['#ef4444', '#10b981', '#f59e0b', '#3b82f6', '#9d4edd', '#6366f1'];
             return {

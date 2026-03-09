@@ -4,9 +4,9 @@ export const ui = {
             csvFileSelect: document.getElementById('csv-file-select'),
             judgeFileSelect: document.getElementById('judge-file-select'),
             
-            filterModel: document.getElementById('filter-model'),
-            filterScenario: document.getElementById('filter-scenario'),
-            filterOversight: document.getElementById('filter-oversight'),
+            filterModelList: document.getElementById('filter-model-list'),
+            filterScenarioList: document.getElementById('filter-scenario-list'),
+            filterOversightList: document.getElementById('filter-oversight-list'),
             
             refreshBtn: document.getElementById('refresh-btn'),
             

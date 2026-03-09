@@ -4,6 +4,11 @@ import { results } from './components/results.js';
 async function init() {
     console.log('Initializing AI Reasoning Dashboard...');
     
+    // Global utility for filters
+    window.toggleFilter = (type, state) => {
+        document.querySelectorAll(`input[name="filter-${type}"]`).forEach(cb => cb.checked = state);
+    };
+
     await results.init();
     
     // Init UI behaviors
