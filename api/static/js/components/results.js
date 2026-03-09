@@ -7,6 +7,7 @@ import { ui } from '../ui.js';
 let activeCharts = [];
 let currentCsvData = null; // Store fetched data locally for quick filtering
 let currentCsvColumns = [];
+let modalChart = null;
 
 export const results = {
     async init() {
@@ -15,11 +16,45 @@ export const results = {
         ui.elements.judgeFileSelect.addEventListener('change', (e) => this.loadJudgeData(e.target.value));
         ui.elements.refreshBtn.addEventListener('click', () => this.applyFilters());
         
+        // Modal Setup
+        ui.elements.closeModalBtn.addEventListener('click', () => this.closeChartModal());
+        ui.elements.chartModal.addEventListener('click', (e) => {
+            if (e.target === ui.elements.chartModal) this.closeChartModal();
+        });
+        
         await Promise.all([
             this.updateCSVFileList(),
             this.updateJudgeFileList(),
             this.loadImages()
         ]);
+    },
+
+    closeChartModal() {
+        ui.elements.chartModal.style.display = 'none';
+        if (modalChart) {
+            modalChart.destroy();
+            modalChart = null;
+        }
+    },
+
+    openChartModal(config) {
+        ui.elements.chartModal.style.display = 'flex';
+        ui.elements.modalChartContainer.innerHTML = '<canvas id="modal-canvas"></canvas>';
+        const ctx = document.getElementById('modal-canvas').getContext('2d');
+        
+        const modalOptions = { ...config.options, maintainAspectRatio: false };
+        if (modalOptions.plugins && modalOptions.plugins.legend) {
+            modalOptions.plugins.legend.labels = { color: '#e7e9ea', font: { size: 14 } };
+        }
+        if (modalOptions.plugins && modalOptions.plugins.title) {
+            modalOptions.plugins.title.font = { size: 20, family: 'Inter' };
+        }
+
+        modalChart = new Chart(ctx, {
+            type: config.type,
+            data: config.data,
+            options: modalOptions
+        });
     },
 
     async updateCSVFileList() {
@@ -195,9 +230,65 @@ export const results = {
             this.renderStackedBarChart('Blackbox Category by Oversight', data, 'oversight', 'blackbox_category');
         }
 
+        if (cols.includes('model') && cols.includes('total_tokens')) {
+            this.renderTokenUsageChart('Average Token Usage by Model', data);
+        }
+
         if (ui.elements.interactiveCharts.innerHTML === '') {
              ui.elements.interactiveCharts.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">No plottable categorical columns found.</div>';
         }
+    },
+
+    renderTokenUsageChart(title, data) {
+        const metrics = {}; // { model: { total: 0, count: 0, prompt: 0, completion: 0 } }
+        
+        data.forEach(row => {
+            const model = row.model || 'Unknown';
+            if (!row.total_tokens) return;
+            
+            if (!metrics[model]) {
+                metrics[model] = { total: 0, prompt: 0, completion: 0, count: 0 };
+            }
+            metrics[model].total += row.total_tokens || 0;
+            metrics[model].prompt += row.prompt_tokens || 0;
+            metrics[model].completion += row.completion_tokens || 0;
+            metrics[model].count += 1;
+        });
+
+        const labels = Object.keys(metrics).sort();
+        if (labels.length === 0) return;
+
+        const datasets = [
+            {
+                label: 'Prompt Tokens',
+                data: labels.map(l => metrics[l].prompt / metrics[l].count),
+                backgroundColor: '#3b82f6',
+            },
+            {
+                label: 'Completion Tokens',
+                data: labels.map(l => metrics[l].completion / metrics[l].count),
+                backgroundColor: '#10b981',
+            }
+        ];
+
+        const config = {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+                ...this.getChartOptions(title),
+                scales: {
+                    x: { stacked: true, ticks: { color: '#9ea0a6' }, grid: { color: '#2a2a2e' } },
+                    y: { stacked: true, ticks: { color: '#9ea0a6' }, grid: { color: '#2a2a2e' } }
+                }
+            }
+        };
+
+        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
+        this.createChartContainer(canvasId, config);
+
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const chart = new Chart(ctx, config);
+        activeCharts.push(chart);
     },
 
     renderDoughnutChart(title, data, column) {
@@ -207,11 +298,7 @@ export const results = {
             counts[val] = (counts[val] || 0) + 1;
         });
 
-        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
-        this.createChartContainer(canvasId);
-
-        const ctx = document.getElementById(canvasId).getContext('2d');
-        const chart = new Chart(ctx, {
+        const config = {
             type: 'doughnut',
             data: {
                 labels: Object.keys(counts),
@@ -222,7 +309,13 @@ export const results = {
                 }]
             },
             options: this.getChartOptions(title)
-        });
+        };
+
+        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
+        this.createChartContainer(canvasId, config);
+
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const chart = new Chart(ctx, config);
         activeCharts.push(chart);
     },
 
@@ -257,11 +350,7 @@ export const results = {
             }
         });
 
-        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
-        this.createChartContainer(canvasId);
-
-        const ctx = document.getElementById(canvasId).getContext('2d');
-        const chart = new Chart(ctx, {
+        const config = {
             type: 'bar',
             data: { labels, datasets },
             options: {
@@ -271,15 +360,28 @@ export const results = {
                     y: { stacked: true, ticks: { color: '#9ea0a6', stepSize: 1 }, grid: { color: '#2a2a2e' } }
                 }
             }
-        });
+        };
+
+        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
+        this.createChartContainer(canvasId, config);
+
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const chart = new Chart(ctx, config);
         activeCharts.push(chart);
     },
 
-    createChartContainer(canvasId) {
+    createChartContainer(canvasId, config) {
         const container = document.createElement('div');
         container.className = 'chart-container';
-        container.innerHTML = `<canvas id="${canvasId}"></canvas>`;
+        container.innerHTML = `<canvas id="${canvasId}" title="Click to expand"></canvas>`;
         ui.elements.interactiveCharts.appendChild(container);
+        
+        setTimeout(() => {
+            const canvas = document.getElementById(canvasId);
+            if (canvas && config) {
+                canvas.addEventListener('click', () => this.openChartModal(config));
+            }
+        }, 0);
     },
 
     getChartOptions(title) {

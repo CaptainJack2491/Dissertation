@@ -16,6 +16,10 @@ export const ui = {
             interactiveCharts: document.getElementById('interactive-charts'),
             dataStats: document.getElementById('data-stats'),
             
+            chartModal: document.getElementById('chart-modal'),
+            closeModalBtn: document.getElementById('close-modal-btn'),
+            modalChartContainer: document.getElementById('modal-chart-container'),
+            
             tabTriggers: document.querySelectorAll('.tab-trigger'),
             tabPanels: document.querySelectorAll('.tab-panel')
         };
