@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Reasoning Framework</title>
+    <title>AI Agent Evaluation Dashboard</title>
     <!-- CSS Modules -->
     <link rel="stylesheet" href="/static/css/base.css">
     <link rel="stylesheet" href="/static/css/layout.css">
     <link rel="stylesheet" href="/static/css/components.css">
-    <link rel="stylesheet" href="/static/css/terminal.css">
     <link rel="stylesheet" href="/static/css/results.css">
     <!-- Google Fonts - Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,93 +18,76 @@
 </head>
 <body>
     <div class="dashboard-root">
-        <!-- Sidebar: Configuration -->
+        <!-- Sidebar: Data Filters -->
         <aside class="sidebar">
             <div class="logo-area">
-                <h1>AI Agent Framework</h1>
+                <h1>AI Dashboard</h1>
             </div>
 
             <nav class="config-panel">
                 <div class="form-group">
-                    <label class="form-label">Scenario</label>
-                    <select id="scenario-select" class="input-field">
+                    <label class="form-label">Data Source (CSV)</label>
+                    <select id="csv-file-select" class="input-field">
                         <option value="">Loading...</option>
                     </select>
                 </div>
-
-                <div class="form-group">
-                    <label class="form-label">Model</label>
-                    <select id="model-select" class="input-field">
-                        <option value="">Loading...</option>
+                
+                <div class="form-group" style="margin-top: var(--space-lg);">
+                    <label class="form-label">Global Filters</label>
+                    <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: var(--space-sm);">Filter active charts by attributes:</div>
+                    
+                    <label class="form-label" style="font-size: 0.65rem;">Model</label>
+                    <select id="filter-model" class="input-field">
+                        <option value="all">All Models</option>
+                    </select>
+                    
+                    <label class="form-label" style="font-size: 0.65rem; margin-top: 8px;">Scenario</label>
+                    <select id="filter-scenario" class="input-field">
+                        <option value="all">All Scenarios</option>
+                    </select>
+                    
+                    <label class="form-label" style="font-size: 0.65rem; margin-top: 8px;">Oversight</label>
+                    <select id="filter-oversight" class="input-field">
+                        <option value="all">All Levels</option>
                     </select>
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">Oversight</label>
-                    <select id="oversight-select" class="input-field">
-                        <option value="low">Low</option>
-                        <option value="mid">Mid</option>
-                        <option value="high">High</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Run Count</label>
-                    <input type="number" id="runs-input" class="input-field" value="1" min="1" max="100">
-                </div>
-
-                <div class="sidebar-actions" style="margin-top: auto; display: flex; flex-direction: column; gap: var(--space-sm);">
-                    <button id="run-btn" class="btn btn-primary">Run Experiment</button>
-                    <button id="cancel-btn" class="btn btn-danger" disabled>Stop Run</button>
+                <div class="sidebar-actions" style="margin-top: auto;">
+                    <button id="refresh-btn" class="btn btn-primary" style="width: 100%;">Apply Filters</button>
                 </div>
             </nav>
-
-            <div class="status-footer">
-                <div class="form-label">System Status</div>
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
-                    <span id="status-badge" class="badge badge-idle">Idle</span>
-                    <span id="status-time" style="font-size: 0.7rem; color: var(--color-text-muted);"></span>
-                </div>
-            </div>
         </aside>
 
         <!-- Main Viewport: Results & Analytics -->
         <main class="main-viewport">
             <header class="app-header">
                 <div class="tab-nav" style="border-bottom: none; background: none; padding: 0;">
-                    <button class="tab-trigger active" data-tab="csv">Raw Data</button>
-                    <button class="tab-trigger" data-tab="images">Visuals</button>
+                    <button class="tab-trigger active" data-tab="images">Visual Analytics</button>
+                    <button class="tab-trigger" data-tab="csv">Raw Dataset</button>
                     <button class="tab-trigger" data-tab="judge">Judge Reports</button>
                 </div>
             </header>
 
             <div class="viewport-content">
-                <div id="tab-csv" class="tab-panel active">
+                <div id="tab-images" class="tab-panel active">
                     <div class="results-controls">
-                        <label class="form-label">Select CSV:</label>
-                        <select id="csv-file-select" class="input-field" style="max-width: 400px; display: inline-block; margin-left: var(--space-sm);">
-                            <option value="">Loading...</option>
-                        </select>
+                        <h2 style="font-size: 1.1rem; color: var(--color-text-primary); margin: 0;">Interactive Dashboard</h2>
+                        <span id="data-stats" style="margin-left: auto; font-size: 0.8rem; font-weight: 600; color: var(--color-accent);"></span>
                     </div>
-                    <div id="csv-results" class="results-container">
-                        <div class="empty-state">No active data.</div>
-                    </div>
-                </div>
-                
-                <div id="tab-images" class="tab-panel">
-                    <div class="results-controls">
-                        <label class="form-label">Data Source:</label>
-                        <select id="chart-file-select" class="input-field" style="max-width: 400px; display: inline-block; margin-left: var(--space-sm);">
-                            <option value="">Loading...</option>
-                        </select>
-                    </div>
+                    
                     <div id="interactive-charts" class="image-grid" style="margin-top: var(--space-md);">
                         <div class="empty-state" style="grid-column: 1 / -1;">Select a CSV to generate visuals.</div>
                     </div>
                     
-                    <h3 style="margin: var(--space-lg) var(--space-lg) var(--space-sm); font-size: 0.8rem; text-transform: uppercase; color: var(--color-text-muted);">Saved Visualizations</h3>
+                    <h3 style="margin: var(--space-xl) var(--space-lg) var(--space-sm); font-size: 0.8rem; text-transform: uppercase; color: var(--color-text-muted); border-bottom: 1px solid var(--color-bg-3); padding-bottom: 8px;">Static Visualizations (viz/)</h3>
                     <div id="image-results" class="image-grid">
                         <div class="empty-state" style="grid-column: 1 / -1;">No visualizations generated.</div>
+                    </div>
+                </div>
+
+                <div id="tab-csv" class="tab-panel">
+                    <div id="csv-results" class="results-container">
+                        <div class="empty-state">No active data.</div>
                     </div>
                 </div>
                 
@@ -122,20 +104,6 @@
                 </div>
             </div>
         </main>
-
-        <!-- Terminal Dock: Live Feedback -->
-        <section class="terminal-dock">
-            <div class="terminal-header">
-                <span class="terminal-title">Event Log</span>
-                <div class="terminal-actions">
-                    <button id="clear-logs-btn" class="btn-terminal">Clear</button>
-                    <button id="scroll-lock-btn" class="btn-terminal active">Auto-Scroll</button>
-                </div>
-            </div>
-            <div id="logs-container" class="terminal-body">
-                <div class="terminal-line muted">System ready. Waiting for run...</div>
-            </div>
-        </section>
     </div>
 
     <!-- Main Entry Point -->

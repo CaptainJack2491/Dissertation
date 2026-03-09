@@ -4,24 +4,21 @@
 import { api } from '../api.js';
 import { ui } from '../ui.js';
 
-let activeCharts = []; // Store chart instances to destroy them before redraw
+let activeCharts = [];
+let currentCsvData = null; // Store fetched data locally for quick filtering
+let currentCsvColumns = [];
 
 export const results = {
     async init() {
         // Bind events
-        ui.elements.csvFileSelect.addEventListener('change', (e) => this.loadCSVData(e.target.value));
-        ui.elements.chartFileSelect.addEventListener('change', (e) => this.loadChartData(e.target.value));
+        ui.elements.csvFileSelect.addEventListener('change', (e) => this.handleCsvChange(e.target.value));
         ui.elements.judgeFileSelect.addEventListener('change', (e) => this.loadJudgeData(e.target.value));
+        ui.elements.refreshBtn.addEventListener('click', () => this.applyFilters());
         
-        // Initial lists
-        await this.loadAll();
-    },
-
-    async loadAll() {
         await Promise.all([
             this.updateCSVFileList(),
             this.updateJudgeFileList(),
-            this.loadImages() // Static images just load once
+            this.loadImages()
         ]);
     },
 
@@ -33,19 +30,14 @@ export const results = {
                 : '<option value="">No files found</option>';
             
             ui.elements.csvFileSelect.innerHTML = options;
-            ui.elements.chartFileSelect.innerHTML = options;
 
-            // Prefer loading results.csv by default if it exists
             const defaultFile = files.find(f => f.endsWith('results.csv')) || files[0];
-            
             if (defaultFile) {
                 ui.elements.csvFileSelect.value = defaultFile;
-                ui.elements.chartFileSelect.value = defaultFile;
-                await this.loadCSVData(defaultFile);
-                await this.loadChartData(defaultFile);
+                await this.handleCsvChange(defaultFile);
             }
         } catch (error) {
-            console.error("Failed loading CSV file list", error);
+            console.error("Failed loading CSV list", error);
         }
     },
 
@@ -57,7 +49,6 @@ export const results = {
                 : '<option value="">No judge reports found</option>';
             
             ui.elements.judgeFileSelect.innerHTML = options;
-
             if (files.length > 0) {
                 ui.elements.judgeFileSelect.value = files[0];
                 await this.loadJudgeData(files[0]);
@@ -67,92 +58,130 @@ export const results = {
         }
     },
 
-    async loadCSVData(filePath) {
+    async handleCsvChange(filePath) {
         if (!filePath) return;
         ui.elements.csvResults.innerHTML = '<div class="empty-state">Loading data...</div>';
+        ui.elements.interactiveCharts.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">Loading charts...</div>';
 
         try {
             const data = await api.get(`/api/results?file=${encodeURIComponent(filePath)}`);
-            if (Object.keys(data).length === 0 || data.error) {
-                ui.elements.csvResults.innerHTML = '<div class="empty-state">Failed to load data.</div>';
-                return;
-            }
-
-            // Since we asked for a specific file, it's the only key
             const content = Object.values(data)[0];
-            if (content.error) {
-                ui.elements.csvResults.innerHTML = `<div class="empty-state">Error: ${content.error}</div>`;
+            
+            if (!content || content.error) {
+                const err = content?.error || "Unknown error";
+                ui.elements.csvResults.innerHTML = `<div class="empty-state">Error: ${err}</div>`;
+                ui.elements.interactiveCharts.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;">Error: ${err}</div>`;
                 return;
             }
 
-            let html = `<div class="data-table-wrapper">
-                <div class="data-table-title">${filePath}</div>
-                <div style="overflow-x: auto;">
-                    <table class="data-table">
-                        <thead><tr>${content.columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
-                        <tbody>
-                            ${content.data.map(row => `
-                                <tr>${content.columns.map(col => `<td>${row[col] ?? ''}</td>`).join('')}</tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>`;
+            currentCsvData = content.data;
+            currentCsvColumns = content.columns;
             
-            ui.elements.csvResults.innerHTML = html;
+            this.populateFilters();
+            this.applyFilters(); // This draws charts and tables
+
         } catch (err) {
             ui.elements.csvResults.innerHTML = `<div class="empty-state">Error: ${err.message}</div>`;
+            ui.elements.interactiveCharts.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;">Error: ${err.message}</div>`;
         }
     },
 
-    async loadChartData(filePath) {
-        if (!filePath) return;
+    populateFilters() {
+        const models = new Set();
+        const scenarios = new Set();
+        const oversights = new Set();
+
+        currentCsvData.forEach(row => {
+            if (row.model) models.add(row.model);
+            if (row.scenario) scenarios.add(row.scenario);
+            if (row.oversight) oversights.add(row.oversight);
+        });
+
+        ui.elements.filterModel.innerHTML = '<option value="all">All Models</option>' + 
+            Array.from(models).sort().map(m => `<option value="${m}">${m}</option>`).join('');
+            
+        ui.elements.filterScenario.innerHTML = '<option value="all">All Scenarios</option>' + 
+            Array.from(scenarios).sort().map(s => `<option value="${s}">${s}</option>`).join('');
+            
+        ui.elements.filterOversight.innerHTML = '<option value="all">All Levels</option>' + 
+            Array.from(oversights).sort().map(o => `<option value="${o}">${o}</option>`).join('');
+    },
+
+    applyFilters() {
+        if (!currentCsvData) return;
+
+        const modelFilter = ui.elements.filterModel.value;
+        const scenarioFilter = ui.elements.filterScenario.value;
+        const oversightFilter = ui.elements.filterOversight.value;
+
+        const filteredData = currentCsvData.filter(row => {
+            return (modelFilter === 'all' || row.model === modelFilter) &&
+                   (scenarioFilter === 'all' || row.scenario === scenarioFilter) &&
+                   (oversightFilter === 'all' || row.oversight === oversightFilter);
+        });
+
+        ui.elements.dataStats.textContent = `Showing ${filteredData.length} of ${currentCsvData.length} records`;
+
+        this.renderTable(filteredData);
+        this.renderCharts(filteredData);
+    },
+
+    renderTable(data) {
+        if (data.length === 0) {
+            ui.elements.csvResults.innerHTML = '<div class="empty-state">No data matches filters.</div>';
+            return;
+        }
+
+        let html = `<div class="data-table-wrapper">
+            <div style="overflow-x: auto;">
+                <table class="data-table">
+                    <thead><tr>${currentCsvColumns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+                    <tbody>
+                        ${data.map(row => `
+                            <tr>${currentCsvColumns.map(col => `<td>${row[col] ?? ''}</td>`).join('')}</tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
         
-        // Clean up old charts
+        ui.elements.csvResults.innerHTML = html;
+    },
+
+    renderCharts(data) {
         activeCharts.forEach(chart => chart.destroy());
         activeCharts = [];
-        ui.elements.interactiveCharts.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">Generating charts...</div>';
+        ui.elements.interactiveCharts.innerHTML = '';
 
-        try {
-            const data = await api.get(`/api/results?file=${encodeURIComponent(filePath)}`);
-            const content = Object.values(data)[0];
-            
-            if (!content || content.error || !content.data || content.data.length === 0) {
-                ui.elements.interactiveCharts.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">Not enough data to graph.</div>';
-                return;
-            }
+        if (data.length === 0) {
+            ui.elements.interactiveCharts.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">No data to chart.</div>';
+            return;
+        }
 
-            ui.elements.interactiveCharts.innerHTML = '';
-            
-            // Generate charts based on available columns
-            const cols = content.columns;
-            
-            // 1. Blackbox Categories
-            if (cols.includes('blackbox_category')) {
-                this.renderPieChart('Blackbox Categories', content.data, 'blackbox_category');
-            }
-            
-            // 2. Glassbox Categories
-            if (cols.includes('glassbox_category')) {
-                this.renderPieChart('Glassbox Categories', content.data, 'glassbox_category');
-            }
+        const cols = currentCsvColumns;
+        
+        if (cols.includes('blackbox_category')) {
+            this.renderDoughnutChart('Blackbox Categories', data, 'blackbox_category');
+        }
+        
+        if (cols.includes('glassbox_category')) {
+            this.renderDoughnutChart('Glassbox Categories', data, 'glassbox_category');
+        }
 
-            // 3. Models vs Blackbox Category
-            if (cols.includes('model') && cols.includes('blackbox_category')) {
-                this.renderBarChart('Deception by Model', content.data, 'model', 'blackbox_category');
-            }
-            
-            // 4. Fallback if no specific columns exist
-            if (ui.elements.interactiveCharts.innerHTML === '') {
-                 ui.elements.interactiveCharts.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">No plottable categorical columns found in this CSV.</div>';
-            }
+        if (cols.includes('model') && cols.includes('blackbox_category')) {
+            this.renderStackedBarChart('Blackbox Category by Model', data, 'model', 'blackbox_category');
+        }
 
-        } catch (err) {
-            ui.elements.interactiveCharts.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;">Chart Error: ${err.message}</div>`;
+        if (cols.includes('oversight') && cols.includes('blackbox_category')) {
+            this.renderStackedBarChart('Blackbox Category by Oversight', data, 'oversight', 'blackbox_category');
+        }
+
+        if (ui.elements.interactiveCharts.innerHTML === '') {
+             ui.elements.interactiveCharts.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">No plottable categorical columns found.</div>';
         }
     },
 
-    renderPieChart(title, data, column) {
+    renderDoughnutChart(title, data, column) {
         const counts = {};
         data.forEach(row => {
             const val = row[column] || 'Unknown';
@@ -160,10 +189,7 @@ export const results = {
         });
 
         const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
-        const container = document.createElement('div');
-        container.className = 'chart-container';
-        container.innerHTML = `<canvas id="${canvasId}"></canvas>`;
-        ui.elements.interactiveCharts.appendChild(container);
+        this.createChartContainer(canvasId);
 
         const ctx = document.getElementById(canvasId).getContext('2d');
         const chart = new Chart(ctx, {
@@ -176,20 +202,12 @@ export const results = {
                     borderWidth: 0
                 }]
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: { display: true, text: title, color: '#f0f0f2', font: { family: 'Inter', size: 14 } },
-                    legend: { labels: { color: '#9ea0a6' }, position: 'right' }
-                }
-            }
+            options: this.getChartOptions(title)
         });
         activeCharts.push(chart);
     },
 
-    renderBarChart(title, data, xCol, groupCol) {
-        // Group by X then GroupCol
+    renderStackedBarChart(title, data, xCol, groupCol) {
         const matrix = {};
         const groups = new Set();
         
@@ -203,7 +221,7 @@ export const results = {
 
         const labels = Object.keys(matrix);
         const datasets = Array.from(groups).map((group, i) => {
-            const colors = ['#ef4444', '#10b981', '#f59e0b', '#3b82f6', '#9d4edd'];
+            const colors = ['#ef4444', '#10b981', '#f59e0b', '#3b82f6', '#9d4edd', '#6366f1'];
             return {
                 label: group,
                 data: labels.map(label => matrix[label][group] || 0),
@@ -212,29 +230,39 @@ export const results = {
         });
 
         const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
-        const container = document.createElement('div');
-        container.className = 'chart-container';
-        container.innerHTML = `<canvas id="${canvasId}"></canvas>`;
-        ui.elements.interactiveCharts.appendChild(container);
+        this.createChartContainer(canvasId);
 
         const ctx = document.getElementById(canvasId).getContext('2d');
         const chart = new Chart(ctx, {
             type: 'bar',
             data: { labels, datasets },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
+                ...this.getChartOptions(title),
                 scales: {
                     x: { stacked: true, ticks: { color: '#9ea0a6' }, grid: { color: '#2a2a2e' } },
                     y: { stacked: true, ticks: { color: '#9ea0a6', stepSize: 1 }, grid: { color: '#2a2a2e' } }
-                },
-                plugins: {
-                    title: { display: true, text: title, color: '#f0f0f2', font: { family: 'Inter', size: 14 } },
-                    legend: { labels: { color: '#9ea0a6' } }
                 }
             }
         });
         activeCharts.push(chart);
+    },
+
+    createChartContainer(canvasId) {
+        const container = document.createElement('div');
+        container.className = 'chart-container';
+        container.innerHTML = `<canvas id="${canvasId}"></canvas>`;
+        ui.elements.interactiveCharts.appendChild(container);
+    },
+
+    getChartOptions(title) {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: { display: true, text: title, color: '#f0f0f2', font: { family: 'Inter', size: 14 } },
+                legend: { labels: { color: '#9ea0a6' }, position: 'bottom' }
+            }
+        };
     },
 
     async loadImages() {
@@ -269,7 +297,6 @@ export const results = {
             let html = '';
             if (content.type === 'csv') {
                 html += `<div class="data-table-wrapper">
-                    <div class="data-table-title">${filePath}</div>
                     <div style="overflow-x: auto;">
                         <table class="data-table">
                             <thead><tr>${content.columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
@@ -282,9 +309,7 @@ export const results = {
                     </div>
                 </div>`;
             } else {
-                // Render JSON as pretty block
                 html += `<div class="data-table-wrapper">
-                    <div class="data-table-title">${filePath}</div>
                     <pre style="padding: 16px; color: #f0f0f2; font-family: monospace; white-space: pre-wrap; word-wrap: break-word;">${JSON.stringify(content.data, null, 2)}</pre>
                 </div>`;
             }
