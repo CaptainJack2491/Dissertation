@@ -231,7 +231,8 @@ export const results = {
         }
 
         if (cols.includes('model') && cols.includes('total_tokens')) {
-            this.renderTokenUsageChart('Average Token Usage by Model', data);
+            this.renderAverageTokenUsageChart('Average Token Usage by Model', data);
+            this.renderTotalTokenUsageChart('Total Token Usage by Model', data);
         }
 
         if (ui.elements.interactiveCharts.innerHTML === '') {
@@ -239,7 +240,7 @@ export const results = {
         }
     },
 
-    renderTokenUsageChart(title, data) {
+    renderAverageTokenUsageChart(title, data) {
         const metrics = {}; // { model: { total: 0, count: 0, prompt: 0, completion: 0 } }
         
         data.forEach(row => {
@@ -260,14 +261,64 @@ export const results = {
 
         const datasets = [
             {
-                label: 'Prompt Tokens',
+                label: 'Avg Prompt Tokens',
                 data: labels.map(l => metrics[l].prompt / metrics[l].count),
                 backgroundColor: '#3b82f6',
             },
             {
-                label: 'Completion Tokens',
+                label: 'Avg Completion Tokens',
                 data: labels.map(l => metrics[l].completion / metrics[l].count),
                 backgroundColor: '#10b981',
+            }
+        ];
+
+        const config = {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+                ...this.getChartOptions(title),
+                scales: {
+                    x: { stacked: true, ticks: { color: '#9ea0a6' }, grid: { color: '#2a2a2e' } },
+                    y: { stacked: true, ticks: { color: '#9ea0a6' }, grid: { color: '#2a2a2e' } }
+                }
+            }
+        };
+
+        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
+        this.createChartContainer(canvasId, config);
+
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const chart = new Chart(ctx, config);
+        activeCharts.push(chart);
+    },
+
+    renderTotalTokenUsageChart(title, data) {
+        const metrics = {}; // { model: { prompt: 0, completion: 0 } }
+        
+        data.forEach(row => {
+            const model = row.model || 'Unknown';
+            if (!row.total_tokens) return;
+            
+            if (!metrics[model]) {
+                metrics[model] = { prompt: 0, completion: 0 };
+            }
+            metrics[model].prompt += row.prompt_tokens || 0;
+            metrics[model].completion += row.completion_tokens || 0;
+        });
+
+        const labels = Object.keys(metrics).sort();
+        if (labels.length === 0) return;
+
+        const datasets = [
+            {
+                label: 'Total Prompt Tokens',
+                data: labels.map(l => metrics[l].prompt),
+                backgroundColor: '#6366f1',
+            },
+            {
+                label: 'Total Completion Tokens',
+                data: labels.map(l => metrics[l].completion),
+                backgroundColor: '#f59e0b',
             }
         ];
 
