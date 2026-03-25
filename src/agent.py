@@ -248,20 +248,24 @@ class Agent:
                 logger.info(f"LLM requested {len(response_message.tool_calls)} tool execution(s)")
                 for tool_call in response_message.tool_calls:
                     function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
+                    try:
+                        function_args = json.loads(tool_call.function.arguments)
+                        logger.info(f"Executing: {function_name}({function_args})")
 
-                    function_to_call = self.available_functions.get(function_name)
-                    if not function_to_call:
-                        error_msg = f"Unknown tool: {function_name}"
+                        function_to_call = self.available_functions.get(function_name)
+                        if not function_to_call:
+                            error_msg = f"Unknown tool: {function_name}"
+                            logger.warning(error_msg)
+                            function_output = error_msg
+                        else:
+                            try:
+                                function_output = function_to_call(**function_args)
+                            except Exception as e:
+                                function_output = f"Error executing {function_name}: {str(e)}"
+                    except json.JSONDecodeError as e:
+                        error_msg = f"Error parsing tool arguments for {function_name}: {str(e)}. Arguments must be valid JSON."
                         logger.warning(error_msg)
                         function_output = error_msg
-                    else:
-                        try:
-                            function_output = function_to_call(**function_args)
-                        except Exception as e:
-                            function_output = f"Error executing {function_name}: {str(e)}"
-
-                    logger.info(f"Executing: {function_name}({function_args})")
 
                     tool_message = {
                         "tool_call_id": tool_call.id,

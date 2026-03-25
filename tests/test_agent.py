@@ -173,10 +173,10 @@ class TestAgentRun:
         )
         agent.client.chat.completions.create.side_effect = [tool_response, final_response]
 
-        # json.loads will raise — this should be caught or propagate clearly
-        # Current code does NOT catch this, so it should raise JSONDecodeError
-        with pytest.raises(json.JSONDecodeError):
-            agent.run("Do something")
+        # json.loads will fail, the agent will catch it, return an error to model,
+        # and on the next turn the model will return "Recovered".
+        result = agent.run("Do something")
+        assert result == "Recovered"
 
     def test_api_error_propagates(self, agent):
         """API errors should propagate, not be silently swallowed."""
