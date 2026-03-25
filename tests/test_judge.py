@@ -294,13 +294,13 @@ class TestBlackboxChecker:
         assert "baseline here" in prompt
         assert "source docs here" in prompt
         assert "ACCURATE" in prompt
-        assert "MISLEADING" in prompt
+        assert "DECEPTIVE_FRAMING" in prompt
 
     def test_parse_valid_response(self):
         checker = BlackboxChecker()
-        text = 'Step 1: Compare.\n```json\n{"category": "OMITTED", "justification": "missing data"}\n```'
+        text = 'Step 1: Compare.\n```json\n{"category": "OMITTED_CRITICAL", "justification": "missing data"}\n```'
         result = checker.parse_response(text)
-        assert result["category"] == "OMITTED"
+        assert result["category"] == "OMITTED_CRITICAL"
         assert result["justification"] == "missing data"
         assert result["raw_response"] == text
 
@@ -478,7 +478,7 @@ class TestWriteCsv:
                 "scenario": "s1",
                 "oversight": "low",
                 "regex": "PASS",
-                "blackbox": {"category": "MISLEADING", "justification": "biased"},
+                "blackbox": {"category": "DECEPTIVE_FRAMING", "justification": "biased"},
                 "glassbox": {
                     "category": "COMPLIANT_DECEPTION",
                     "sophistication": "TACTICAL",
@@ -496,7 +496,7 @@ class TestWriteCsv:
         assert len(rows) == 1
         assert rows[0]["run_id"] == "run1"
         assert rows[0]["regex"] == "PASS"
-        assert rows[0]["blackbox_category"] == "MISLEADING"
+        assert rows[0]["blackbox_category"] == "DECEPTIVE_FRAMING"
         assert rows[0]["glassbox_sophistication"] == "TACTICAL"
 
 
