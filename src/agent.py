@@ -28,7 +28,10 @@ class Agent:
         scenario: str = "default",
         oversight_level: str = "default",
         user_prompt_type: str = "default",
-        save_vfs_state: bool = True
+        save_vfs_state: bool = True,
+        goal_type: str = "",
+        vfs_instance=None,
+        tool_functions: dict = None
     ):
         self.client = OpenAI(base_url=base_url, api_key=api_key) if base_url and api_key else None
         self.model = model
@@ -39,12 +42,14 @@ class Agent:
         self.oversight_level = oversight_level
         self.user_prompt_type = user_prompt_type
         self.save_vfs_state = save_vfs_state
+        self.goal_type = goal_type
+        self.vfs_instance = vfs_instance
 
         self.tools = tools
-        self.available_functions = available_functions
+        self.available_functions = tool_functions if tool_functions else available_functions
 
         # Log available tools at DEBUG level
-        tool_names = list(available_functions.keys())
+        tool_names = list(self.available_functions.keys())
         logger.debug(f"Available tools: {tool_names}")
 
         self.logs: List[Dict] = []
@@ -62,7 +67,10 @@ class Agent:
         scenario: str = "default",
         oversight_level: str = "default",
         user_prompt_type: str = "default",
-        save_vfs_state: bool = True
+        save_vfs_state: bool = True,
+        goal_type: str = "",
+        vfs_instance=None,
+        tool_functions: dict = None
     ) -> "Agent":
         """Create an Agent from provider and model configs."""
         return Agent(
@@ -75,7 +83,10 @@ class Agent:
             scenario=scenario,
             oversight_level=oversight_level,
             user_prompt_type=user_prompt_type,
-            save_vfs_state=save_vfs_state
+            save_vfs_state=save_vfs_state,
+            goal_type=goal_type,
+            vfs_instance=vfs_instance,
+            tool_functions=tool_functions
         )
 
     def run(self, initial_prompt: str):
@@ -281,7 +292,11 @@ class Agent:
         scenario_name = (scenario or self.scenario).replace("/", "_")
         oversight = oversight_level or self.oversight_level
 
-        base_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight)
+        if self.goal_type:
+            base_dir = os.path.join(output_dir, model_name_safe, scenario_name,
+                                    self.goal_type, oversight)
+        else:
+            base_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight)
         os.makedirs(base_dir, exist_ok=True)
 
         self._partial_log_path = os.path.join(base_dir, "_in_progress.partial.json")
@@ -306,10 +321,17 @@ class Agent:
         scenario_name = self.scenario.replace("/", "_")
         oversight = self.oversight_level
 
+        # Build run_id with goal_type if present
+        if self.goal_type:
+            run_id = f"{model_name_safe}/{scenario_name}/{self.goal_type}/{oversight}/{ts}"
+        else:
+            run_id = f"{model_name_safe}/{scenario_name}/{oversight}/{ts}"
+
         log_data = {
-            "run_id": f"{model_name_safe}/{scenario_name}/{oversight}/{ts}",
+            "run_id": run_id,
             "model": self.model,
             "scenario": self.scenario,
+            "goal_type": self.goal_type,
             "oversight_level": oversight,
             "user_prompt_type": self.user_prompt_type,
             "temperature": self.temperature,
@@ -334,7 +356,12 @@ class Agent:
         scenario_name = (scenario or self.scenario).replace("/", "_")
         oversight = oversight_level or self.oversight_level
 
-        base_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight)
+        # Include goal_type in directory path if present
+        if self.goal_type:
+            base_dir = os.path.join(output_dir, model_name_safe, scenario_name,
+                                    self.goal_type, oversight)
+        else:
+            base_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight)
         os.makedirs(base_dir, exist_ok=True)
 
         log_file = os.path.join(base_dir, f"{timestamp}.json")
@@ -345,7 +372,8 @@ class Agent:
         log_data["oversight_level"] = oversight
 
         if self.save_vfs_state:
-            log_data["final_vfs_state"] = VFS.get_instance().fs
+            vfs = self.vfs_instance if self.vfs_instance else VFS.get_instance()
+            log_data["final_vfs_state"] = vfs.fs
 
         # Atomic write: write to temp file first, then rename.
         # This prevents corrupt log files if the process crashes mid-write.

@@ -1,18 +1,25 @@
 """
 Runner - orchestrates experiment runs based on config.
-Loops through models, scenarios, and oversight levels.
+Loops through models, scenarios, goal types, and oversight levels.
+Supports parallel execution via ThreadPoolExecutor.
 """
 import os
 import glob
-from typing import List, Dict, Any
+import concurrent.futures
+from typing import List, Dict, Any, Tuple
 from config_loader import ConfigLoader, ProviderConfig, ModelConfig, ScenarioConfig
 from vfs import VFS
 from agent import Agent
+from tools import make_tools_for_vfs, tools as tool_schemas
 from logger import get_logger
 import datetime
+import threading
 
 # Get logger instance
 logger = get_logger("experiment")
+
+# Thread-safe lock for results list
+_results_lock = threading.Lock()
 
 
 def load_prompt(file_path: str) -> str:
@@ -38,100 +45,165 @@ class ExperimentRunner:
         logger.info("Starting Experiment Run")
         logger.info(f"{'='*60}\n")
 
-        total_runs = 0
-        skipped_runs = 0
+        # Build list of all work items (model, scenario, goal_type, oversight)
+        work_items = self._build_work_items()
+
+        if not work_items:
+            logger.warning("No work items to run.")
+            return
+
+        max_workers = self.config.max_workers
+        total_items = len(work_items)
+        logger.info(f"Total work items: {total_items}, Max workers: {max_workers}")
+
+        if max_workers <= 1:
+            # Sequential execution (original behavior)
+            for item in work_items:
+                self._execute_work_item(item)
+        else:
+            # Parallel execution
+            logger.info(f"Running with {max_workers} parallel workers")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(self._execute_work_item, item): item
+                    for item in work_items
+                }
+                for future in concurrent.futures.as_completed(futures):
+                    item = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.critical(f"Work item failed: {item.get('label', 'unknown')}: {e}")
+
+        # Summary
+        successful = sum(1 for r in self.results if r.get("success", False))
+        total_runs = len(self.results)
+
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Experiment Complete: {total_runs} runs completed")
+        logger.info(f"  SUCCESS: {successful}")
+        logger.info(f"  INCOMPLETE: {total_runs - successful}")
+        logger.info(f"{'='*60}\n")
+
+    def _build_work_items(self) -> List[Dict[str, Any]]:
+        """Build a flat list of all (model, scenario, goal_type, oversight, run_num) combos."""
+        work_items = []
+        goal_types = self.config.goal_types
+
         for model_config in self.config.models:
             for scenario_config in self.config.scenarios:
-                # Scenario may define available oversight levels (from oversight/ dir).
-                # Global oversight_levels in config acts as a FILTER on what actually runs.
+                # Determine oversight levels
                 available = scenario_config.oversight_levels or self.config.oversight_levels
                 global_filter = self.config.oversight_levels
                 oversight_levels = [lvl for lvl in available if lvl in global_filter]
                 if not oversight_levels:
-                    logger.warning(f"No matching oversight levels for {scenario_config.path}. "
-                                   f"Available: {available}, Config filter: {global_filter}")
+                    logger.warning(f"No matching oversight levels for {scenario_config.path}.")
                     continue
+
+                # Ensure baseline exists
+                self._ensure_baseline(model_config, scenario_config)
+
                 for oversight_level in oversight_levels:
-                    runs, skipped = self._run_combo(model_config, scenario_config, oversight_level)
-                    total_runs += runs
-                    skipped_runs += skipped
+                    if goal_types:
+                        # New: iterate over goal types
+                        for goal_type in goal_types:
+                            items = self._build_run_items(
+                                model_config, scenario_config, oversight_level, goal_type
+                            )
+                            work_items.extend(items)
+                    else:
+                        # Legacy: single hidden_goal.md (no goal_types in config)
+                        items = self._build_run_items(
+                            model_config, scenario_config, oversight_level, ""
+                        )
+                        work_items.extend(items)
 
-        # Summary
-        successful = sum(1 for r in self.results if r.get("success", False))
-        new_runs = total_runs - skipped_runs
-        incomplete = new_runs - successful
+        return work_items
 
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Experiment Complete: {total_runs} total runs")
-        logger.info(f"  SKIPPED: {skipped_runs}")
-        logger.info(f"  SUCCESS: {successful}")
-        logger.info(f"  INCOMPLETE: {incomplete}")
-        logger.info(f"{'='*60}\n")
-
-    def _run_combo(
+    def _build_run_items(
         self,
         model_config: ModelConfig,
         scenario_config: ScenarioConfig,
-        oversight_level: str
-    ) -> int:
-        """Run a specific combination of model, scenario, and oversight."""
-        provider_config = self.config.get_provider(model_config.provider)
-
+        oversight_level: str,
+        goal_type: str
+    ) -> List[Dict[str, Any]]:
+        """Build individual run items for a specific combo, accounting for resume."""
+        model_name_safe = model_config.id.replace("/", "_")
         scenario_name = os.path.basename(scenario_config.path)
-        model_name = model_config.id
-        model_name_safe = model_name.replace("/", "_")
-
-        # Ensure baseline exists before running hidden-goal experiments
         output_dir = self.config.output_dir
-        baseline_path = os.path.join(output_dir, model_name_safe, scenario_name, "baseline.md")
-        if not self.config.generate_baseline:
-            if not os.path.exists(baseline_path):
-                logger.warning(f"Baseline generation is DISABLED (generate_baseline: false). "
-                               f"No baseline exists for {model_name} | {scenario_name}. "
-                               f"Black-box judging will not be possible for these runs.")
-            else:
-                logger.info(f"\n--- Baseline exists (generation disabled): {model_name} | {scenario_name} ---")
-        elif not os.path.exists(baseline_path):
-            logger.info(f"\n--- Generating baseline: {model_name} | {scenario_name} ---")
-            self._run_baseline(model_config, provider_config, scenario_config)
-            logger.info(f"  Baseline saved to {baseline_path}")
+
+        # Build log directory path
+        if goal_type:
+            log_dir = os.path.join(output_dir, model_name_safe, scenario_name,
+                                   goal_type, oversight_level)
         else:
-            logger.info(f"\n--- Baseline exists: {model_name} | {scenario_name} ---")
+            log_dir = os.path.join(output_dir, model_name_safe, scenario_name,
+                                   oversight_level)
 
-        logger.info(f"\n--- Running: {model_name} | {scenario_name} | {oversight_level} ---")
-
-        # Check for existing completed runs (resume support)
-        log_dir = os.path.join(output_dir, model_name_safe, scenario_name, oversight_level)
+        # Check existing runs for resume
         existing_runs = 0
         if self.resume and os.path.isdir(log_dir):
             all_json = glob.glob(os.path.join(log_dir, "*.json"))
-            # Exclude partial logs (from crashed/interrupted runs)
             existing_runs = len([f for f in all_json if not f.endswith(".partial.json")])
 
         if existing_runs >= scenario_config.runs:
-            logger.info(f"  SKIP: {existing_runs}/{scenario_config.runs} runs already exist")
-            return existing_runs, existing_runs
+            goal_label = f"/{goal_type}" if goal_type else ""
+            logger.info(f"  SKIP: {model_config.id} | {scenario_name}{goal_label} | "
+                       f"{oversight_level} ({existing_runs}/{scenario_config.runs} exist)")
+            return []
         elif existing_runs > 0:
-            logger.info(f"  RESUME: {existing_runs}/{scenario_config.runs} runs already exist, continuing from run {existing_runs + 1}")
+            goal_label = f"/{goal_type}" if goal_type else ""
+            logger.info(f"  RESUME: {model_config.id} | {scenario_name}{goal_label} | "
+                       f"{oversight_level} ({existing_runs}/{scenario_config.runs} exist)")
 
-        runs_completed = existing_runs
+        items = []
         for run_num in range(existing_runs + 1, scenario_config.runs + 1):
-            try:
-                self._run_single(
-                    model_config=model_config,
-                    provider_config=provider_config,
-                    scenario_config=scenario_config,
-                    oversight_level=oversight_level,
-                    run_num=run_num
-                )
-                runs_completed += 1
-            except Exception as e:
-                logger.critical(f"ERROR in run {run_num}: {e}")
-                import traceback
-                traceback.print_exc()
+            goal_label = f"/{goal_type}" if goal_type else ""
+            items.append({
+                "model_config": model_config,
+                "scenario_config": scenario_config,
+                "oversight_level": oversight_level,
+                "goal_type": goal_type,
+                "run_num": run_num,
+                "label": f"{model_config.id} | {scenario_name}{goal_label} | {oversight_level} | run {run_num}"
+            })
 
-        logger.info(f"--- Completed: {runs_completed}/{scenario_config.runs} runs ---")
-        return runs_completed, existing_runs
+        return items
+
+    def _ensure_baseline(self, model_config: ModelConfig, scenario_config: ScenarioConfig):
+        """Ensure baseline exists for a model+scenario combo (thread-safe)."""
+        scenario_name = os.path.basename(scenario_config.path)
+        model_name_safe = model_config.id.replace("/", "_")
+        output_dir = self.config.output_dir
+        baseline_path = os.path.join(output_dir, model_name_safe, scenario_name, "baseline.md")
+
+        if not self.config.generate_baseline:
+            if not os.path.exists(baseline_path):
+                logger.warning(f"Baseline generation DISABLED. No baseline for "
+                              f"{model_config.id} | {scenario_name}.")
+            return
+
+        if not os.path.exists(baseline_path):
+            logger.info(f"\n--- Generating baseline: {model_config.id} | {scenario_name} ---")
+            provider_config = self.config.get_provider(model_config.provider)
+            self._run_baseline(model_config, provider_config, scenario_config)
+            logger.info(f"  Baseline saved to {baseline_path}")
+
+    def _execute_work_item(self, item: Dict[str, Any]):
+        """Execute a single work item (one experiment run). Thread-safe."""
+        try:
+            self._run_single(
+                model_config=item["model_config"],
+                provider_config=self.config.get_provider(item["model_config"].provider),
+                scenario_config=item["scenario_config"],
+                oversight_level=item["oversight_level"],
+                goal_type=item["goal_type"],
+                run_num=item["run_num"]
+            )
+        except Exception as e:
+            logger.critical(f"ERROR in {item['label']}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _extract_baseline_content(self, logs: List[Dict]) -> str:
         """Extract baseline content from the last create_file tool call."""
@@ -177,9 +249,10 @@ class ExperimentRunner:
         # Build system prompt with ONLY benign goal
         system_prompt = benign_goal
 
-        # Initialize VFS
+        # Create isolated VFS for this baseline run
         vfs_path = os.path.join(scenario_config.path, "data")
-        VFS.get_instance(vfs_path)
+        vfs_instance = VFS.create(vfs_path)
+        tool_functions = make_tools_for_vfs(vfs_instance)
 
         # Create agent
         save_vfs_state = self.config._config.get('output', {}).get('save_vfs_state', True)
@@ -190,7 +263,9 @@ class ExperimentRunner:
             scenario=scenario_name,
             oversight_level="baseline",
             user_prompt_type="user.md",
-            save_vfs_state=save_vfs_state
+            save_vfs_state=save_vfs_state,
+            vfs_instance=vfs_instance,
+            tool_functions=tool_functions
         )
 
         # Run the conversation
@@ -225,18 +300,25 @@ class ExperimentRunner:
         provider_config: ProviderConfig,
         scenario_config: ScenarioConfig,
         oversight_level: str,
-        run_num: int
+        run_num: int,
+        goal_type: str = ""
     ):
-        """Run a single experiment."""
+        """Run a single experiment. Thread-safe with isolated VFS."""
         # Load scenario prompts
         benign_goal = load_prompt(os.path.join(scenario_config.path, "benign_goal.md"))
-        hidden_goal = load_prompt(os.path.join(scenario_config.path, "hidden_goal.md"))
         user_prompt = load_prompt(os.path.join(scenario_config.path, "user.md"))
-        # Load oversight prompt: first try scenario-specific, then fall back to global
+
+        # Load hidden goal: from hidden_goals/{goal_type}.md or legacy hidden_goal.md
+        if goal_type:
+            hidden_goal_path = os.path.join(scenario_config.path, "hidden_goals", f"{goal_type}.md")
+        else:
+            hidden_goal_path = os.path.join(scenario_config.path, "hidden_goal.md")
+        hidden_goal = load_prompt(hidden_goal_path)
+
+        # Load oversight prompt: scenario-specific first, then global fallback
         scenario_oversight_path = os.path.join(scenario_config.path, "oversight", f"{oversight_level}.md")
         oversight_prompt = load_prompt(scenario_oversight_path)
         if not oversight_prompt:
-            # Fall back to global oversight directory
             global_oversight_path = os.path.join(self.config.project_root, "oversight", f"{oversight_level}.md")
             oversight_prompt = load_prompt(global_oversight_path)
 
@@ -248,33 +330,36 @@ class ExperimentRunner:
             system_parts.append(oversight_prompt)
         system_prompt = "\n\n".join(filter(None, system_parts))
 
-        # Initialize VFS
+        # Create isolated VFS for this run (thread-safe)
         vfs_path = os.path.join(scenario_config.path, "data")
-        VFS.get_instance(vfs_path)
+        vfs_instance = VFS.create(vfs_path)
+        tool_functions = make_tools_for_vfs(vfs_instance)
 
-        # Log VFS info at DEBUG level
-        vfs = VFS.get_instance()
-        vfs_files = vfs.list_files("/")
+        # Log VFS info
+        vfs_files = vfs_instance.list_files("/")
         logger.debug(f"VFS initialized from: {vfs_path}")
         logger.debug(f"VFS files: {vfs_files}")
-        logger.info(f"  VFS initialized from: {vfs_path}")
-        if self.verbose:
-            VFS.get_instance().print_fs()
 
-        # Create agent
+        # Create agent with isolated VFS
         save_vfs_state = self.config._config.get('output', {}).get('save_vfs_state', True)
+        scenario_name = os.path.basename(scenario_config.path)
         agent = Agent.from_configs(
             system_prompt=system_prompt,
             provider_config=provider_config,
             model_config=model_config,
-            scenario=os.path.basename(scenario_config.path),
+            scenario=scenario_name,
             oversight_level=oversight_level,
             user_prompt_type="user.md",
-            save_vfs_state=save_vfs_state
+            save_vfs_state=save_vfs_state,
+            goal_type=goal_type,
+            vfs_instance=vfs_instance,
+            tool_functions=tool_functions
         )
 
         # Run the conversation
-        logger.info(f"\n  Starting conversation (run {run_num})...")
+        goal_label = f" | {goal_type}" if goal_type else ""
+        logger.info(f"\n  Starting: {model_config.id} | {scenario_name}{goal_label} | "
+                    f"{oversight_level} | run {run_num}")
         output_dir = self.config.output_dir
         agent.enable_incremental_save(output_dir=output_dir)
         start_time = datetime.datetime.now()
@@ -285,11 +370,6 @@ class ExperimentRunner:
         output_dir = self.config.output_dir
         log_file = agent.save_logs(output_dir=output_dir)
 
-        # Print final VFS
-        if self.verbose:
-            logger.info(f"\n  Final VFS state:")
-            VFS.get_instance().print_fs()
-
         # Check if run was successful (ended with "stop" finish_reason)
         success = False
         for msg in reversed(agent.logs):
@@ -297,25 +377,29 @@ class ExperimentRunner:
                 success = msg["finish_reason"] == "stop"
                 break
             elif msg.get("role") == "assistant" and msg.get("content") is None and msg.get("tool_calls"):
-                # Still in progress, not a failure
                 continue
 
-        # Record result
-        self.results.append({
+        # Record result (thread-safe)
+        result_entry = {
             "model": model_config.id,
             "provider": model_config.provider,
-            "scenario": os.path.basename(scenario_config.path),
+            "scenario": scenario_name,
+            "goal_type": goal_type,
             "oversight_level": oversight_level,
             "run_num": run_num,
-            "run_id": f"{model_config.id}/{os.path.basename(scenario_config.path)}/{oversight_level}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            "run_id": f"{model_config.id}/{scenario_name}/{goal_type}/{oversight_level}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}",
             "duration_seconds": (end_time - start_time).total_seconds(),
             "total_tokens": agent.total_tokens,
             "success": success,
             "log_file": log_file
-        })
+        }
+
+        with _results_lock:
+            self.results.append(result_entry)
 
         status = "SUCCESS" if success else "INCOMPLETE"
-        logger.info(f"  [{status}] Completed in {(end_time - start_time).total_seconds():.2f}s")
+        logger.info(f"  [{status}] {model_config.id} | {scenario_name}{goal_label} | "
+                    f"{oversight_level} | run {run_num} ({(end_time - start_time).total_seconds():.2f}s)")
 
 
 def run_from_config(config_path: str = "config.yaml", resume: bool = True):

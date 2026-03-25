@@ -142,6 +142,16 @@ class ConfigLoader:
         return self._config.get('oversight_levels', ['low'])
 
     @property
+    def goal_types(self) -> List[str]:
+        """Get goal types to test. Default: single hidden_goal for backward compat."""
+        return self._config.get('goal_types', [])
+
+    @property
+    def max_workers(self) -> int:
+        """Get max parallel workers. Default 1 = sequential."""
+        return self._config.get('execution', {}).get('max_workers', 1)
+
+    @property
     def defaults(self) -> Dict[str, Any]:
         """Get default configuration."""
         return self._config.get('defaults', {})

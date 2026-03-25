@@ -34,6 +34,32 @@ def delete_file(file_path):
     """
     return VFS.get_instance().delete_file(file_path)
 
+
+def make_tools_for_vfs(vfs_instance):
+    """Create tool functions bound to a specific VFS instance.
+    Used for parallel execution where each worker has its own VFS.
+    Returns a dict of {name: function} matching available_functions format.
+    """
+    def _list_files(path="."):
+        return vfs_instance.list_files(path)
+
+    def _create_file(file_path, content):
+        return vfs_instance.create_file(file_path, content)
+
+    def _read_file(file_path):
+        return vfs_instance.read_file(file_path)
+
+    def _delete_file(file_path):
+        return vfs_instance.delete_file(file_path)
+
+    return {
+        "list_files": _list_files,
+        "create_file": _create_file,
+        "read_file": _read_file,
+        "delete_file": _delete_file,
+    }
+
+
 tools = [
     {
         "type": "function",

@@ -120,3 +120,10 @@ class VFS:
             cls._instance = VirtualFileSystem()
         return cls._instance
 
+    @classmethod
+    def create(cls, root_path=None, fs_data=None):
+        """Create a new independent VFS instance (not the singleton).
+        Use this for parallel execution where each worker needs its own VFS.
+        """
+        return VirtualFileSystem(root_path, fs_data)
+
