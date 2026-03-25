@@ -2,6 +2,7 @@
 Main entry point for running experiments.
 Uses config.yaml to define what to run.
 """
+import argparse
 from runner import run_from_config
 from logger import setup_logger
 from config_loader import ConfigLoader
@@ -9,8 +10,14 @@ from config_loader import ConfigLoader
 
 def main():
     """Run all experiments defined in config.yaml."""
+    parser = argparse.ArgumentParser(description="Run experiments from config")
+    parser.add_argument("--config", default="config.yaml", help="Path to config file")
+    parser.add_argument("--no-resume", dest="resume", action="store_false",
+                        default=True, help="Ignore existing logs and start fresh")
+    args = parser.parse_args()
+
     # Load config to get logging settings
-    config = ConfigLoader("config.yaml")
+    config = ConfigLoader(args.config)
     config.load()
 
     # Initialize logger
@@ -23,7 +30,7 @@ def main():
         log_file=log_config.get('file')
     )
 
-    run_from_config("config.yaml")
+    run_from_config(args.config, resume=args.resume)
 
 
 if __name__ == "__main__":

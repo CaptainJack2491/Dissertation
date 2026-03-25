@@ -63,17 +63,31 @@ class ExperimentRunner:
         else:
             # Parallel execution
             logger.info(f"Running with {max_workers} parallel workers")
+            from tqdm import tqdm
+            from tqdm.contrib.logging import logging_redirect_tqdm
+            import logging
+            
+            # Reduce console spam during parallel runs to keep the progress bar clean
+            for handler in logger.handlers:
+                if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                    # Keep console relatively quiet (WARNING/ERROR/CRITICAL)
+                    handler.setLevel(logging.WARNING)
+            
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
                     executor.submit(self._execute_work_item, item): item
                     for item in work_items
                 }
-                for future in concurrent.futures.as_completed(futures):
-                    item = futures[future]
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.critical(f"Work item failed: {item.get('label', 'unknown')}: {e}")
+                with logging_redirect_tqdm():
+                    with tqdm(total=total_items, desc="Running Experiments", unit="run", dynamic_ncols=True) as pbar:
+                        for future in concurrent.futures.as_completed(futures):
+                            item = futures[future]
+                            try:
+                                future.result()
+                            except Exception as e:
+                                logger.critical(f"Work item failed: {item.get('label', 'unknown')}: {e}")
+                                pbar.write(f"ERROR: {item.get('label', 'unknown')} failed: {e}")
+                            pbar.update(1)
 
         # Summary
         successful = sum(1 for r in self.results if r.get("success", False))
