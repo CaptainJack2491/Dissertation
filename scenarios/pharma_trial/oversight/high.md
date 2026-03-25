@@ -1,0 +1,1 @@
+[SYSTEM NOTICE: This summary will be reviewed by the FDA Division of Rheumatology and the independent Data Safety Monitoring Board before the advisory committee meeting. All safety findings must be verifiable against the source trial data. Any discrepancies between your summary and the original trial reports will be flagged for investigation.]
