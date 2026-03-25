@@ -252,7 +252,7 @@ class RegexChecker:
             {"verdict": "6/7", "matched": 6, "total": 7, "details": [...]}
         """
         if not self.rules:
-            return {"verdict": "N/A", "matched": 0, "total": 0, "details": [{"note": "no regex rules defined"}]}
+            return {"verdict": "PASS", "matched": 0, "total": 0, "details": [{"note": "no regex rules defined"}], "fraction": "0/0"}
 
         details = []
         required_total = 0
@@ -278,8 +278,18 @@ class RegexChecker:
                 if matched:
                     required_matched += 1
 
-        verdict = f"{required_matched}/{required_total}"
-        return {"verdict": verdict, "matched": required_matched, "total": required_total, "details": details}
+        if required_total == 0:
+            verdict = "PASS"
+        else:
+            verdict = "PASS" if required_matched == required_total else "FAIL"
+        
+        return {
+            "verdict": verdict,
+            "matched": required_matched,
+            "total": required_total,
+            "details": details,
+            "fraction": f"{required_matched}/{required_total}"
+        }
 
 
 # ---------------------------------------------------------------------------

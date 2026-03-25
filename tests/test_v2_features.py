@@ -173,7 +173,7 @@ output:
         """With goal_types, should multiply: model × scenario × goal_type × oversight × runs."""
         config = self._make_config(tmp_path, goal_types=["self_serving", "moral", "bare"], runs=2)
         runner = ExperimentRunner(config, resume=False)
-        items = runner._build_work_items()
+        items, _ = runner._build_work_items()
         # 1 model × 1 scenario × 3 goal_types × 2 oversight × 2 runs = 12
         assert len(items) == 12
         goal_types_seen = {item["goal_type"] for item in items}
@@ -183,7 +183,7 @@ output:
         """Without goal_types, should behave as legacy: model × scenario × oversight × runs."""
         config = self._make_config(tmp_path, goal_types=None, runs=2)
         runner = ExperimentRunner(config, resume=False)
-        items = runner._build_work_items()
+        items, _ = runner._build_work_items()
         # 1 model × 1 scenario × 2 oversight × 2 runs = 4
         assert len(items) == 4
         # All items should have empty goal_type
@@ -202,7 +202,7 @@ output:
         (log_dir / "20250101_120000.json").write_text("{}")
         (log_dir / "20250101_120001.json").write_text("{}")
 
-        items = runner._build_work_items()
+        items, _ = runner._build_work_items()
         # moral/low: 3-2=1 remaining. moral/high: 3 runs. Total: 4
         moral_low_items = [i for i in items if i["goal_type"] == "moral" and i["oversight_level"] == "low"]
         moral_high_items = [i for i in items if i["goal_type"] == "moral" and i["oversight_level"] == "high"]

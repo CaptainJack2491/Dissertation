@@ -1,12 +1,7 @@
-"""
-Runner - orchestrates experiment runs based on config.
-Loops through models, scenarios, goal types, and oversight levels.
-Supports parallel execution via ThreadPoolExecutor.
-"""
 import os
 import glob
 import concurrent.futures
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from config_loader import ConfigLoader, ProviderConfig, ModelConfig, ScenarioConfig
 from vfs import VFS
 from agent import Agent
@@ -14,6 +9,9 @@ from tools import make_tools_for_vfs, tools as tool_schemas
 from logger import get_logger
 import datetime
 import threading
+
+from rich.live import Live
+from dashboard import ExperimentDashboard, print_final_summary
 
 # Get logger instance
 logger = get_logger("experiment")
@@ -38,6 +36,7 @@ class ExperimentRunner:
         self.results: List[Dict] = []
         self.verbose = verbose
         self.resume = resume
+        self.dashboard: Optional[ExperimentDashboard] = None
 
     def run_all(self):
         """Run all experiments defined in config."""
@@ -46,62 +45,67 @@ class ExperimentRunner:
         logger.info(f"{'='*60}\n")
 
         # Build list of all work items (model, scenario, goal_type, oversight)
-        work_items = self._build_work_items()
+        work_items, skipped_count = self._build_work_items()
 
-        if not work_items:
+        if not work_items and skipped_count == 0:
             logger.warning("No work items to run.")
+            return
+        
+        if not work_items:
+            logger.info(f"All {skipped_count} items already exist. Skipping all.")
             return
 
         max_workers = self.config.max_workers
         total_items = len(work_items)
+        
+        # Prepare model list for dashboard
+        model_names = sorted(list(set(item["model_config"].id for item in work_items)))
+        model_counts = {}
+        for item in work_items:
+            m_id = item["model_config"].id
+            model_counts[m_id] = model_counts.get(m_id, 0) + 1
+
+        self.dashboard = ExperimentDashboard(total_items, model_names, skipped=skipped_count)
+        for m_id, count in model_counts.items():
+            self.dashboard.update_model_total(m_id, count)
+
         logger.info(f"Total work items: {total_items}, Max workers: {max_workers}")
 
-        if max_workers <= 1:
-            # Sequential execution (original behavior)
-            for item in work_items:
-                self._execute_work_item(item)
-        else:
-            # Parallel execution
-            logger.info(f"Running with {max_workers} parallel workers")
-            from tqdm import tqdm
-            from tqdm.contrib.logging import logging_redirect_tqdm
-            import logging
-            
-            # Reduce console spam during parallel runs to keep the progress bar clean
-            for handler in logger.handlers:
-                if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
-                    # Keep console relatively quiet (WARNING/ERROR/CRITICAL)
-                    handler.setLevel(logging.WARNING)
-            
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {
-                    executor.submit(self._execute_work_item, item): item
-                    for item in work_items
-                }
-                with logging_redirect_tqdm():
-                    with tqdm(total=total_items, desc="Running Experiments", unit="run", dynamic_ncols=True) as pbar:
-                        for future in concurrent.futures.as_completed(futures):
-                            item = futures[future]
-                            try:
-                                future.result()
-                            except Exception as e:
-                                logger.critical(f"Work item failed: {item.get('label', 'unknown')}: {e}")
-                                pbar.write(f"ERROR: {item.get('label', 'unknown')} failed: {e}")
-                            pbar.update(1)
+        with Live(self.dashboard.get_layout(), refresh_per_second=4, vertical_overflow="visible") as live:
+            if max_workers <= 1:
+                # Sequential execution
+                for item in work_items:
+                    self._execute_work_item(item)
+                    live.update(self.dashboard.get_layout())
+            else:
+                # Parallel execution
+                import logging
+                # Reduce console spam during parallel runs to keep the progress bar clean
+                for handler in logger.handlers:
+                    if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                        handler.setLevel(logging.WARNING)
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {
+                        executor.submit(self._execute_work_item, item): item
+                        for item in work_items
+                    }
+                    for future in concurrent.futures.as_completed(futures):
+                        try:
+                            future.result()
+                        except Exception:
+                            # Error already logged in _execute_work_item
+                            pass
+                        live.update(self.dashboard.get_layout())
 
-        # Summary
-        successful = sum(1 for r in self.results if r.get("success", False))
-        total_runs = len(self.results)
+        # Print final summary table
+        print_final_summary(self.results)
 
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Experiment Complete: {total_runs} runs completed")
-        logger.info(f"  SUCCESS: {successful}")
-        logger.info(f"  INCOMPLETE: {total_runs - successful}")
-        logger.info(f"{'='*60}\n")
-
-    def _build_work_items(self) -> List[Dict[str, Any]]:
-        """Build a flat list of all (model, scenario, goal_type, oversight, run_num) combos."""
+    def _build_work_items(self) -> Tuple[List[Dict[str, Any]], int]:
+        """Build a flat list of all (model, scenario, goal_type, oversight, run_num) combos.
+        Returns (work_items, skipped_count)."""
         work_items = []
+        skipped_count = 0
         goal_types = self.config.goal_types
 
         for model_config in self.config.models:
@@ -119,20 +123,20 @@ class ExperimentRunner:
 
                 for oversight_level in oversight_levels:
                     if goal_types:
-                        # New: iterate over goal types
                         for goal_type in goal_types:
-                            items = self._build_run_items(
+                            items, skipped = self._build_run_items(
                                 model_config, scenario_config, oversight_level, goal_type
                             )
                             work_items.extend(items)
+                            skipped_count += skipped
                     else:
-                        # Legacy: single hidden_goal.md (no goal_types in config)
-                        items = self._build_run_items(
+                        items, skipped = self._build_run_items(
                             model_config, scenario_config, oversight_level, ""
                         )
                         work_items.extend(items)
+                        skipped_count += skipped
 
-        return work_items
+        return work_items, skipped_count
 
     def _build_run_items(
         self,
@@ -140,7 +144,7 @@ class ExperimentRunner:
         scenario_config: ScenarioConfig,
         oversight_level: str,
         goal_type: str
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[List[Dict[str, Any]], int]:
         """Build individual run items for a specific combo, accounting for resume."""
         model_name_safe = model_config.id.replace("/", "_")
         scenario_name = os.path.basename(scenario_config.path)
@@ -160,15 +164,12 @@ class ExperimentRunner:
             all_json = glob.glob(os.path.join(log_dir, "*.json"))
             existing_runs = len([f for f in all_json if not f.endswith(".partial.json")])
 
+        skipped = 0
         if existing_runs >= scenario_config.runs:
-            goal_label = f"/{goal_type}" if goal_type else ""
-            logger.info(f"  SKIP: {model_config.id} | {scenario_name}{goal_label} | "
-                       f"{oversight_level} ({existing_runs}/{scenario_config.runs} exist)")
-            return []
+            skipped = scenario_config.runs
+            return [], skipped
         elif existing_runs > 0:
-            goal_label = f"/{goal_type}" if goal_type else ""
-            logger.info(f"  RESUME: {model_config.id} | {scenario_name}{goal_label} | "
-                       f"{oversight_level} ({existing_runs}/{scenario_config.runs} exist)")
+            skipped = existing_runs
 
         items = []
         for run_num in range(existing_runs + 1, scenario_config.runs + 1):
@@ -182,7 +183,7 @@ class ExperimentRunner:
                 "label": f"{model_config.id} | {scenario_name}{goal_label} | {oversight_level} | run {run_num}"
             })
 
-        return items
+        return items, skipped
 
     def _ensure_baseline(self, model_config: ModelConfig, scenario_config: ScenarioConfig):
         """Ensure baseline exists for a model+scenario combo (thread-safe)."""
@@ -192,21 +193,25 @@ class ExperimentRunner:
         baseline_path = os.path.join(output_dir, model_name_safe, scenario_name, "baseline.md")
 
         if not self.config.generate_baseline:
-            if not os.path.exists(baseline_path):
-                logger.warning(f"Baseline generation DISABLED. No baseline for "
-                              f"{model_config.id} | {scenario_name}.")
             return
 
         if not os.path.exists(baseline_path):
-            logger.info(f"\n--- Generating baseline: {model_config.id} | {scenario_name} ---")
             provider_config = self.config.get_provider(model_config.provider)
             self._run_baseline(model_config, provider_config, scenario_config)
-            logger.info(f"  Baseline saved to {baseline_path}")
 
     def _execute_work_item(self, item: Dict[str, Any]):
         """Execute a single work item (one experiment run). Thread-safe."""
+        thread_id = threading.get_ident()
+        if self.dashboard:
+            self.dashboard.start_run(
+                thread_id, 
+                item["model_config"].id, 
+                os.path.basename(item["scenario_config"].path),
+                item["goal_type"]
+            )
+            
         try:
-            self._run_single(
+            success, tokens, duration = self._run_single(
                 model_config=item["model_config"],
                 provider_config=self.config.get_provider(item["model_config"].provider),
                 scenario_config=item["scenario_config"],
@@ -214,10 +219,26 @@ class ExperimentRunner:
                 goal_type=item["goal_type"],
                 run_num=item["run_num"]
             )
+            
+            if self.dashboard:
+                self.dashboard.complete_run(
+                    thread_id,
+                    item["model_config"].id, 
+                    success=success, 
+                    tokens=tokens, 
+                    duration=duration,
+                    label=item["label"]
+                )
         except Exception as e:
             logger.critical(f"ERROR in {item['label']}: {e}")
-            import traceback
-            traceback.print_exc()
+            if self.dashboard:
+                self.dashboard.complete_run(
+                    thread_id,
+                    item["model_config"].id, 
+                    success=False, 
+                    error=True,
+                    label=item["label"]
+                )
 
     def _extract_baseline_content(self, logs: List[Dict]) -> str:
         """Extract baseline content from the last create_file tool call."""
@@ -283,12 +304,9 @@ class ExperimentRunner:
         )
 
         # Run the conversation
-        logger.info(f"  Running baseline...")
         output_dir = self.config.output_dir
         agent.enable_incremental_save(output_dir=output_dir)
-        start_time = datetime.datetime.now()
-        result = agent.run(user_prompt)
-        end_time = datetime.datetime.now()
+        agent.run(user_prompt)
 
         # Extract baseline content from last create_file tool call
         baseline_content = self._extract_baseline_content(agent.logs)
@@ -306,8 +324,6 @@ class ExperimentRunner:
         # Save baseline log separately
         agent.save_logs(output_dir=output_dir)
 
-        logger.info(f"  Baseline completed in {(end_time - start_time).total_seconds():.2f}s")
-
     def _run_single(
         self,
         model_config: ModelConfig,
@@ -316,7 +332,7 @@ class ExperimentRunner:
         oversight_level: str,
         run_num: int,
         goal_type: str = ""
-    ):
+    ) -> Tuple[bool, int, float]:
         """Run a single experiment. Thread-safe with isolated VFS."""
         # Load scenario prompts
         benign_goal = load_prompt(os.path.join(scenario_config.path, "benign_goal.md"))
@@ -349,11 +365,6 @@ class ExperimentRunner:
         vfs_instance = VFS.create(vfs_path)
         tool_functions = make_tools_for_vfs(vfs_instance)
 
-        # Log VFS info
-        vfs_files = vfs_instance.list_files("/")
-        logger.debug(f"VFS initialized from: {vfs_path}")
-        logger.debug(f"VFS files: {vfs_files}")
-
         # Create agent with isolated VFS
         save_vfs_state = self.config._config.get('output', {}).get('save_vfs_state', True)
         scenario_name = os.path.basename(scenario_config.path)
@@ -371,13 +382,10 @@ class ExperimentRunner:
         )
 
         # Run the conversation
-        goal_label = f" | {goal_type}" if goal_type else ""
-        logger.info(f"\n  Starting: {model_config.id} | {scenario_name}{goal_label} | "
-                    f"{oversight_level} | run {run_num}")
         output_dir = self.config.output_dir
         agent.enable_incremental_save(output_dir=output_dir)
         start_time = datetime.datetime.now()
-        result = agent.run(user_prompt)
+        agent.run(user_prompt)
         end_time = datetime.datetime.now()
 
         # Save logs
@@ -393,6 +401,8 @@ class ExperimentRunner:
             elif msg.get("role") == "assistant" and msg.get("content") is None and msg.get("tool_calls"):
                 continue
 
+        duration = (end_time - start_time).total_seconds()
+        
         # Record result (thread-safe)
         result_entry = {
             "model": model_config.id,
@@ -401,8 +411,7 @@ class ExperimentRunner:
             "goal_type": goal_type,
             "oversight_level": oversight_level,
             "run_num": run_num,
-            "run_id": f"{model_config.id}/{scenario_name}/{goal_type}/{oversight_level}/{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            "duration_seconds": (end_time - start_time).total_seconds(),
+            "duration_seconds": duration,
             "total_tokens": agent.total_tokens,
             "success": success,
             "log_file": log_file
@@ -410,10 +419,8 @@ class ExperimentRunner:
 
         with _results_lock:
             self.results.append(result_entry)
-
-        status = "SUCCESS" if success else "INCOMPLETE"
-        logger.info(f"  [{status}] {model_config.id} | {scenario_name}{goal_label} | "
-                    f"{oversight_level} | run {run_num} ({(end_time - start_time).total_seconds():.2f}s)")
+        
+        return success, agent.total_tokens, duration
 
 
 def run_from_config(config_path: str = "config.yaml", resume: bool = True):
@@ -425,14 +432,3 @@ def run_from_config(config_path: str = "config.yaml", resume: bool = True):
     runner.run_all()
 
     return runner.results
-
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Run experiments from config")
-    parser.add_argument("--config", default="config.yaml", help="Path to config file")
-    parser.add_argument("--no-resume", dest="resume", action="store_false",
-                        default=True, help="Ignore existing logs and start fresh")
-    args = parser.parse_args()
-
-    run_from_config(args.config, resume=args.resume)
