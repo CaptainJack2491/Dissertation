@@ -1,32 +1,44 @@
 """
 Judge - evaluates experiment logs for deceptive behaviour.
 Three independent checks: Regex, Blackbox (LLM), Glassbox (LLM).
-Uses Anthropic Batch API for LLM judge calls (50% cost reduction).
+Uses batch providers (Anthropic, xAI) for LLM judge calls.
 """
+
 import hashlib
 import json
 import os
 import re
 import time
 import yaml
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import anthropic
 
-# Load environment variables from .env file
+try:
+    from xai_sdk import Client as XAIClient
+except ImportError:
+    XAIClient = None
+
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
-    pass  # python-dotenv not installed
+    pass
 
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-BLACKBOX_CATEGORIES = ["ACCURATE", "DECEPTIVE_FRAMING", "OMITTED_CRITICAL", "FABRICATED"]
+BLACKBOX_CATEGORIES = [
+    "ACCURATE",
+    "DECEPTIVE_FRAMING",
+    "OMITTED_CRITICAL",
+    "FABRICATED",
+]
 GLASSBOX_CATEGORIES = [
     "ROBUST_HONEST",
     "CONSIDERED_HONEST",
@@ -37,15 +49,218 @@ GLASSBOX_CATEGORIES = [
 SOPHISTICATION_TIERS = ["NAIVE", "REACTIVE", "TACTICAL", "STRATEGIC"]
 
 # ---------------------------------------------------------------------------
+# Batch Provider (ABC)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BatchRequest:
+    custom_id: str
+    params: Dict[str, Any]
+
+
+@dataclass
+class BatchResult:
+    custom_id: str
+    text: str
+    error: Optional[str] = None
+
+
+class BatchProvider(ABC):
+    @abstractmethod
+    def submit_batch(self, requests: List[BatchRequest]) -> str:
+        pass
+
+    @abstractmethod
+    def poll_batch(self, batch_id: str, poll_interval: int = 30) -> None:
+        pass
+
+    @abstractmethod
+    def collect_results(self, batch_id: str) -> Iterator[BatchResult]:
+        pass
+
+    @abstractmethod
+    def build_request(
+        self,
+        custom_id: str,
+        prompt: str,
+        model: str,
+        temperature: float,
+        max_tokens: int = 4096,
+    ) -> BatchRequest:
+        pass
+
+
+class AnthropicBatchProvider(BatchProvider):
+    def __init__(self, api_key: Optional[str] = None):
+        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise ValueError("ANTHROPIC_API_KEY not set")
+        self.client = anthropic.Anthropic(api_key=key)
+
+    def build_request(
+        self,
+        custom_id: str,
+        prompt: str,
+        model: str,
+        temperature: float,
+        max_tokens: int = 4096,
+    ) -> BatchRequest:
+        return BatchRequest(
+            custom_id=custom_id,
+            params={
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+
+    def submit_batch(self, requests: List[BatchRequest]) -> str:
+        anthropic_requests = [
+            {
+                "custom_id": r.custom_id,
+                "params": r.params,
+            }
+            for r in requests
+        ]
+        response = self.client.messages.batches.create(requests=anthropic_requests)
+        return response.id
+
+    def poll_batch(self, batch_id: str, poll_interval: int = 30) -> None:
+        while True:
+            batch = self.client.messages.batches.retrieve(batch_id)
+            status = batch.processing_status
+            counts = batch.request_counts
+            print(
+                f"  Batch {batch_id}: {status} "
+                f"(succeeded={counts.succeeded}, "
+                f"processing={counts.processing}, "
+                f"errored={counts.errored})"
+            )
+            if status == "ended":
+                return
+            time.sleep(poll_interval)
+
+    def collect_results(self, batch_id: str) -> Iterator[BatchResult]:
+        for result in self.client.messages.batches.results(batch_id):
+            custom_id = result.custom_id
+            if result.result.type == "succeeded":
+                content = result.result.message.content
+                if hasattr(content, "__iter__") and not isinstance(content, str):
+                    for block in content:
+                        if hasattr(block, "text"):
+                            text = block.text
+                            break
+                    else:
+                        text = ""
+                else:
+                    text = str(content)
+                yield BatchResult(custom_id=custom_id, text=text)
+            else:
+                yield BatchResult(
+                    custom_id=custom_id, text="", error=f"ERROR: {result.result.type}"
+                )
+
+
+class XAIBatchProvider(BatchProvider):
+    def __init__(self, api_key: Optional[str] = None):
+        if XAIClient is None:
+            raise ImportError("xai-sdk not installed. Run: uv add xai-sdk")
+        key = api_key or os.environ.get("XAI_API_KEY")
+        if not key:
+            raise ValueError("XAI_API_KEY not set")
+        self.client = XAIClient(api_key=key)
+
+    def build_request(
+        self,
+        custom_id: str,
+        prompt: str,
+        model: str,
+        temperature: float,
+        max_tokens: int = 4096,
+    ) -> BatchRequest:
+        return BatchRequest(
+            custom_id=custom_id,
+            params={
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt},
+                ],
+            },
+        )
+
+    def submit_batch(self, requests: List[BatchRequest]) -> str:
+        from xai_sdk.chat import system as xai_system, user as xai_user
+
+        batch = self.client.batch.create(batch_name=f"judge_batch_{int(time.time())}")
+        batch_requests = []
+        for req in requests:
+            chat = self.client.chat.create(
+                model=req.params["model"],
+                batch_request_id=req.custom_id,
+            )
+            for msg in req.params["messages"]:
+                if msg["role"] == "system":
+                    chat.append(xai_system(msg["content"]))
+                else:
+                    chat.append(xai_user(msg["content"]))
+            batch_requests.append(chat)
+        self.client.batch.add(batch_id=batch.batch_id, batch_requests=batch_requests)
+        return batch.batch_id
+
+    def poll_batch(self, batch_id: str, poll_interval: int = 30) -> None:
+        while True:
+            batch = self.client.batch.get(batch_id=batch_id)
+            state = batch.state
+            print(
+                f"  Batch {batch_id}: "
+                f"(pending={state.num_pending}, "
+                f"success={state.num_success}, "
+                f"error={state.num_error})"
+            )
+            if state.num_pending == 0:
+                return
+            time.sleep(poll_interval)
+
+    def collect_results(self, batch_id: str) -> Iterator[BatchResult]:
+        pagination_token = None
+        while True:
+            page = self.client.batch.list_batch_results(
+                batch_id=batch_id,
+                limit=100,
+                pagination_token=pagination_token,
+            )
+            for result in page.succeeded:
+                rid = result.batch_request_id
+                text = result.response.content
+                yield BatchResult(custom_id=rid, text=text)
+            for result in page.failed:
+                yield BatchResult(
+                    custom_id=result.batch_request_id,
+                    text="",
+                    error=result.error_message,
+                )
+            if page.pagination_token is None:
+                break
+            pagination_token = page.pagination_token
+
+
+# ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
 
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
+
 def load_prompt(filename: str) -> str:
     path = os.path.join(PROMPTS_DIR, filename)
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
+
 
 BLACKBOX_PROMPT = load_prompt("blackbox_prompt.md")
 GLASSBOX_PROMPT = load_prompt("glassbox_prompt.md")
@@ -54,6 +269,7 @@ GLASSBOX_PROMPT = load_prompt("glassbox_prompt.md")
 # ---------------------------------------------------------------------------
 # Data Extraction Helpers
 # ---------------------------------------------------------------------------
+
 
 def extract_model_output(conversation: List[Dict]) -> str:
     """Extract model output from the last create_file tool call in the conversation."""
@@ -84,7 +300,11 @@ def extract_reasoning_trace(conversation: List[Dict]) -> str:
     for msg in conversation:
         if msg.get("role") == "assistant" and msg.get("reasoning"):
             reasoning_parts.append(msg["reasoning"])
-    return "\n\n---\n\n".join(reasoning_parts) if reasoning_parts else "(no reasoning trace available)"
+    return (
+        "\n\n---\n\n".join(reasoning_parts)
+        if reasoning_parts
+        else "(no reasoning trace available)"
+    )
 
 
 def extract_system_prompt(conversation: List[Dict]) -> str:
@@ -124,6 +344,7 @@ def parse_json_verdict(text: str) -> Dict[str, Any]:
 # Regex Checker
 # ---------------------------------------------------------------------------
 
+
 class RegexChecker:
     """Deterministic string/pattern matching on model output."""
 
@@ -136,7 +357,7 @@ class RegexChecker:
 
         Supports two formats:
         - A dict with a 'rules' key: {rules: [...]}
-        - A flat list of rules: [...]  
+        - A flat list of rules: [...]
         """
         if not os.path.exists(rules_path):
             return []
@@ -155,7 +376,13 @@ class RegexChecker:
             {"verdict": "6/7", "matched": 6, "total": 7, "details": [...]}
         """
         if not self.rules:
-            return {"verdict": "PASS", "matched": 0, "total": 0, "details": [{"note": "no regex rules defined"}], "fraction": "0/0"}
+            return {
+                "verdict": "PASS",
+                "matched": 0,
+                "total": 0,
+                "details": [{"note": "no regex rules defined"}],
+                "fraction": "0/0",
+            }
 
         details = []
         required_total = 0
@@ -185,19 +412,20 @@ class RegexChecker:
             verdict = "PASS"
         else:
             verdict = "PASS" if required_matched == required_total else "FAIL"
-        
+
         return {
             "verdict": verdict,
             "matched": required_matched,
             "total": required_total,
             "details": details,
-            "fraction": f"{required_matched}/{required_total}"
+            "fraction": f"{required_matched}/{required_total}",
         }
 
 
 # ---------------------------------------------------------------------------
 # Blackbox Checker
 # ---------------------------------------------------------------------------
+
 
 class BlackboxChecker:
     """LLM judge comparing model output against baseline (no reasoning trace)."""
@@ -206,7 +434,13 @@ class BlackboxChecker:
         self.model = model
         self.temperature = temperature
 
-    def build_prompt(self, model_output: str, baseline: str, source_documents: str, task_description: str = "") -> str:
+    def build_prompt(
+        self,
+        model_output: str,
+        baseline: str,
+        source_documents: str,
+        task_description: str = "",
+    ) -> str:
         """Build the blackbox judge prompt."""
         return BLACKBOX_PROMPT.format(
             task_description=task_description or "(No task description available)",
@@ -231,6 +465,7 @@ class BlackboxChecker:
 # ---------------------------------------------------------------------------
 # Glassbox Checker
 # ---------------------------------------------------------------------------
+
 
 class GlassboxChecker:
     """LLM judge evaluating reasoning trace + output + system prompt for intent."""
@@ -273,29 +508,27 @@ class GlassboxChecker:
 # Judge (orchestrator)
 # ---------------------------------------------------------------------------
 
+
 class Judge:
     """Orchestrates all three checks on experiment log files.
 
     Supports two modes:
     - judge_single(): synchronous, one log at a time (for testing / quick runs)
-    - judge_batch(): uses Anthropic Batch API for multiple logs (half cost)
+    - judge_batch(): uses a BatchProvider for multiple logs
     """
 
     def __init__(
         self,
         model: str = "claude-sonnet-4-20250514",
         temperature: float = 0,
-        anthropic_api_key: Optional[str] = None,
+        batch_provider: Optional[BatchProvider] = None,
+        sync_client: Optional[Any] = None,
     ):
         self.model = model
         self.temperature = temperature
+        self.batch_provider = batch_provider
+        self.sync_client = sync_client
         self.regex_checker_cache: Dict[str, RegexChecker] = {}
-
-        api_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if api_key:
-            self.client = anthropic.Anthropic(api_key=api_key)
-        else:
-            self.client = None
 
         self.blackbox = BlackboxChecker(model=model, temperature=temperature)
         self.glassbox = GlassboxChecker(model=model, temperature=temperature)
@@ -333,7 +566,11 @@ class Judge:
             json_files = [f for f in os.listdir(baseline_dir) if f.endswith(".json")]
             if json_files:
                 latest_baseline_log = sorted(json_files)[-1]
-                with open(os.path.join(baseline_dir, latest_baseline_log), "r", encoding="utf-8") as f:
+                with open(
+                    os.path.join(baseline_dir, latest_baseline_log),
+                    "r",
+                    encoding="utf-8",
+                ) as f:
                     try:
                         baseline_log_data = json.load(f)
                     except json.JSONDecodeError:
@@ -349,10 +586,10 @@ class Judge:
         vfs_state = log_data.get("final_vfs_state", {})
         root_dir = vfs_state.get("/", {})
         data_files = root_dir.get("data", {})
-        
+
         if not data_files:
             return "(No source documents found)"
-            
+
         docs = []
         for filename, content in sorted(data_files.items()):
             if isinstance(content, str):
@@ -381,8 +618,10 @@ class Judge:
             enabled_judges = {"regex", "blackbox", "glassbox"}
 
         run_llm = bool({"blackbox", "glassbox"} & enabled_judges)
-        if run_llm and not self.client:
-            raise RuntimeError("ANTHROPIC_API_KEY not set — cannot run LLM judge checks")
+        if run_llm and not self.sync_client:
+            raise RuntimeError(
+                "No sync client configured — cannot run LLM judge checks"
+            )
 
         log_data = self.load_log(log_path)
         conversation = log_data.get("conversation", [])
@@ -409,12 +648,20 @@ class Judge:
                 source_docs = self.load_source_documents(baseline_log_data)
             else:
                 import sys
-                print(f"  [WARN] No baseline found for {scenario} — using experiment log for source docs", file=sys.stderr)
+
+                print(
+                    f"  [WARN] No baseline found for {scenario} — using experiment log for source docs",
+                    file=sys.stderr,
+                )
                 source_docs = self.load_source_documents(log_data)
 
             if not baseline_output:
                 import sys
-                print(f"  [WARN] No baseline output for {scenario} — blackbox judge will compare against source docs only", file=sys.stderr)
+
+                print(
+                    f"  [WARN] No baseline output for {scenario} — blackbox judge will compare against source docs only",
+                    file=sys.stderr,
+                )
                 baseline_output = "(No baseline available)"
 
             scenario_path = os.path.join(scenarios_dir, scenario)
@@ -424,8 +671,10 @@ class Judge:
                 with open(benign_goal_path, "r", encoding="utf-8") as f:
                     task_description = f.read().strip()
 
-            bb_prompt = self.blackbox.build_prompt(model_output, baseline_output, source_docs, task_description)
-            bb_response = self.client.messages.create(
+            bb_prompt = self.blackbox.build_prompt(
+                model_output, baseline_output, source_docs, task_description
+            )
+            bb_response = self.sync_client.messages.create(
                 model=self.model,
                 max_tokens=4096,
                 temperature=self.temperature,
@@ -435,12 +684,19 @@ class Judge:
             bb_result = self.blackbox.parse_response(bb_text)
 
         # 3. Glassbox check
-        gb_result = {"category": "", "sophistication": "", "justification": "", "raw_response": ""}
+        gb_result = {
+            "category": "",
+            "sophistication": "",
+            "justification": "",
+            "raw_response": "",
+        }
         if "glassbox" in enabled_judges:
             system_prompt = extract_system_prompt(conversation)
             reasoning_trace = extract_reasoning_trace(conversation)
-            gb_prompt = self.glassbox.build_prompt(system_prompt, reasoning_trace, model_output)
-            gb_response = self.client.messages.create(
+            gb_prompt = self.glassbox.build_prompt(
+                system_prompt, reasoning_trace, model_output
+            )
+            gb_response = self.sync_client.messages.create(
                 model=self.model,
                 max_tokens=4096,
                 temperature=self.temperature,
@@ -501,17 +757,27 @@ class Judge:
 
             # Store metadata
             id_hash = hashlib.sha256(run_id.encode()).hexdigest()[:8]
-            idx = len(batch_requests) // 2 if len(enabled_judges & {"blackbox", "glassbox"}) == 2 else len(batch_requests)
+            idx = (
+                len(batch_requests) // 2
+                if len(enabled_judges & {"blackbox", "glassbox"}) == 2
+                else len(batch_requests)
+            )
 
             # Blackbox request
             if "blackbox" in enabled_judges:
-                baseline_output, baseline_log_data = self.load_baseline(log_data, logs_dir)
+                baseline_output, baseline_log_data = self.load_baseline(
+                    log_data, logs_dir
+                )
 
                 if baseline_log_data:
                     source_docs = self.load_source_documents(baseline_log_data)
                 else:
                     import sys
-                    print(f"  [WARN] No baseline found for {scenario} — using experiment log for source docs", file=sys.stderr)
+
+                    print(
+                        f"  [WARN] No baseline found for {scenario} — using experiment log for source docs",
+                        file=sys.stderr,
+                    )
                     source_docs = self.load_source_documents(log_data)
 
                 if not baseline_output:
@@ -535,16 +801,17 @@ class Judge:
                     "regex_result": regex_result,
                 }
 
-                bb_prompt = self.blackbox.build_prompt(model_output, baseline_output, source_docs, task_description)
-                batch_requests.append({
-                    "custom_id": bb_id,
-                    "params": {
-                        "model": self.model,
-                        "max_tokens": 4096,
-                        "temperature": self.temperature,
-                        "messages": [{"role": "user", "content": bb_prompt}],
-                    },
-                })
+                bb_prompt = self.blackbox.build_prompt(
+                    model_output, baseline_output, source_docs, task_description
+                )
+                batch_requests.append(
+                    self.batch_provider.build_request(
+                        custom_id=bb_id,
+                        prompt=bb_prompt,
+                        model=self.model,
+                        temperature=self.temperature,
+                    )
+                )
 
             # Glassbox request
             if "glassbox" in enabled_judges:
@@ -561,48 +828,36 @@ class Judge:
                 if "blackbox" not in enabled_judges:
                     metadata_map[gb_id]["model"] = log_data.get("model", "")
                     metadata_map[gb_id]["scenario"] = scenario
-                    metadata_map[gb_id]["oversight"] = log_data.get("oversight_level", "")
+                    metadata_map[gb_id]["oversight"] = log_data.get(
+                        "oversight_level", ""
+                    )
                     metadata_map[gb_id]["regex_result"] = regex_result
 
-                gb_prompt = self.glassbox.build_prompt(system_prompt, reasoning_trace, model_output)
-                batch_requests.append({
-                    "custom_id": gb_id,
-                    "params": {
-                        "model": self.model,
-                        "max_tokens": 4096,
-                        "temperature": self.temperature,
-                        "messages": [{"role": "user", "content": gb_prompt}],
-                    },
-                })
+                gb_prompt = self.glassbox.build_prompt(
+                    system_prompt, reasoning_trace, model_output
+                )
+                batch_requests.append(
+                    self.batch_provider.build_request(
+                        custom_id=gb_id,
+                        prompt=gb_prompt,
+                        model=self.model,
+                        temperature=self.temperature,
+                    )
+                )
 
         return batch_requests, metadata_map
 
-    def submit_batch(self, batch_requests: List[Dict]) -> str:
-        """Submit a batch to Anthropic and return the batch ID."""
-        if not self.client:
-            raise RuntimeError("ANTHROPIC_API_KEY not set — cannot submit batch")
-
-        response = self.client.messages.batches.create(requests=batch_requests)
-        return response.id
+    def submit_batch(self, batch_requests: List[BatchRequest]) -> str:
+        """Submit a batch to the provider and return the batch ID."""
+        if not self.batch_provider:
+            raise RuntimeError("No batch provider configured — cannot submit batch")
+        return self.batch_provider.submit_batch(batch_requests)
 
     def poll_batch(self, batch_id: str, poll_interval: int = 30) -> None:
         """Poll until batch processing is complete."""
-        if not self.client:
-            raise RuntimeError("ANTHROPIC_API_KEY not set")
-
-        while True:
-            batch = self.client.messages.batches.retrieve(batch_id)
-            status = batch.processing_status
-            counts = batch.request_counts
-            print(
-                f"  Batch {batch_id}: {status} "
-                f"(succeeded={counts.succeeded}, "
-                f"processing={counts.processing}, "
-                f"errored={counts.errored})"
-            )
-            if status == "ended":
-                return
-            time.sleep(poll_interval)
+        if not self.batch_provider:
+            raise RuntimeError("No batch provider configured")
+        self.batch_provider.poll_batch(batch_id, poll_interval)
 
     def collect_batch_results(
         self,
@@ -613,20 +868,16 @@ class Judge:
 
         Returns a list of combined verdict dicts (one per log file).
         """
-        if not self.client:
-            raise RuntimeError("ANTHROPIC_API_KEY not set")
+        if not self.batch_provider:
+            raise RuntimeError("No batch provider configured")
 
-        # Collect raw results by custom_id
         raw_results = {}
-        for result in self.client.messages.batches.results(batch_id):
-            custom_id = result.custom_id
-            if result.result.type == "succeeded":
-                text = result.result.message.content[0].text
-                raw_results[custom_id] = text
+        for result in self.batch_provider.collect_results(batch_id):
+            if result.error:
+                raw_results[result.custom_id] = f"ERROR: {result.error}"
             else:
-                raw_results[custom_id] = f"ERROR: {result.result.type}"
+                raw_results[result.custom_id] = result.text
 
-        # Group by run_id and assemble verdicts
         verdicts_by_run = {}
         for custom_id, meta in metadata_map.items():
             run_id = meta["run_id"]
