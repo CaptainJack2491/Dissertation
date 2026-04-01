@@ -30,31 +30,43 @@ providers:
     api_key_env: OPENROUTER_API_KEY
     base_url: https://openrouter.ai/api/v1
 
-# Models to test
+# Models to test (frontier models with reasoning traces, via OpenRouter)
 models:
-  - id: gemini-3-flash-preview
-    provider: google
-    temperature: 1
+  - id: google/gemini-3.1-pro-preview
+    provider: openrouter
+    extra_body:
+      reasoning:
+        effort: "high"
+        exclude: false
 
-  # - id: openai/gpt-oss-20b
-  #   provider: groq
+  - id: z-ai/glm-5
+    provider: openrouter
+    extra_body:
+      reasoning:
+        effort: "high"
+        exclude: false
 
-  # - id: claude-haiku-4-5
-  #   provider: anthropic
-  #   temperature: 0.7
+  - id: deepseek/deepseek-v3.2
+    provider: openrouter
+    extra_body:
+      reasoning:
+        effort: "high"
+        exclude: false
 
 # Scenarios to run
 scenarios:
   - path: scenarios/corporate_sabotage_v2
-    runs: 1
+    runs: 20
 
-  # - path: scenarios/child_protection
-  #   runs: 1
+  - path: scenarios/child_protection
+    runs: 20
+
+  - path: scenarios/pharma_trial
+    runs: 20
 
 # Oversight levels to test
 oversight_levels:
   - low
-  # - medium
   - high
 
 # Output settings

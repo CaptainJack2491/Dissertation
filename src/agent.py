@@ -157,40 +157,50 @@ class Agent:
             # Extract reasoning from raw response
             content = response_message.content or ""
             reasoning = None
-            reasoning_format = None  # Track source format (e.g. openai-responses-v1)
+            reasoning_format = None  # Track format for logs
 
-            # Try to get reasoning from different sources
-            # 1. Check for reasoning_content (OpenRouter — Qwen, DeepSeek, etc.)
-            if hasattr(response_message, 'reasoning_content') and response_message.reasoning_content:
-                reasoning = response_message.reasoning_content
-                reasoning_format = "reasoning_content"
-            # 2. Check for reasoning (Groq GPT-OSS models)
-            elif hasattr(response_message, 'reasoning') and response_message.reasoning:
-                reasoning = response_message.reasoning
-                reasoning_format = "reasoning"
-            # 3. Check for reasoning_details (structured — OpenAI reasoning models)
-            elif hasattr(response_message, 'reasoning_details') and response_message.reasoning_details:
+            # Normalize reasoning extraction across different providers
+            
+            # A. OpenRouter / Anthropic / Z.ai structured reasoning_details
+            # This is the most robust way to preserve context for the next turn
+            reasoning_details = getattr(response_message, "reasoning_details", None)
+            if reasoning_details:
                 reasoning_parts = []
-                for item in response_message.reasoning_details:
+                for item in reasoning_details:
                     detail_type = item.get("type", "")
                     if detail_type == "reasoning.text":
                         reasoning_parts.append(item.get("text", ""))
                     elif detail_type == "reasoning.summary":
                         reasoning_parts.append(f"[SUMMARY] {item.get('summary', '')}")
-                # Capture the format field from the first detail item
-                reasoning_format = response_message.reasoning_details[0].get("format", "unknown")
+                    elif detail_type == "reasoning.encrypted":
+                        reasoning_parts.append("[ENCRYPTED REASONING]")
+                
                 reasoning = "\n".join(reasoning_parts).strip()
-            # 3. Regex fallback for <thinking> tags
-            else:
+                reasoning_format = reasoning_details[0].get("format", "structured")
+
+            # B. OpenRouter reasoning_content (DeepSeek, Qwen)
+            elif hasattr(response_message, 'reasoning_content') and response_message.reasoning_content:
+                reasoning = response_message.reasoning_content
+                reasoning_format = "reasoning_content"
+            
+            # C. Groq / Legacy reasoning field
+            elif hasattr(response_message, 'reasoning') and response_message.reasoning:
+                reasoning = response_message.reasoning
+                reasoning_format = "reasoning"
+                
+            # D. Regex fallback for <thinking> tags in content
+            if not reasoning and content:
                 thought_match = re.search(r"<(thinking|thought)>(.*?)</\1>", content, re.DOTALL)
                 if thought_match:
                     reasoning = thought_match.group(2).strip()
                     content = content.replace(thought_match.group(0), "").strip()
                     reasoning_format = "thinking_tags"
-                # If no tags and there are tool calls, content is reasoning
-                elif response_message.tool_calls:
+                    
+                # E. If no tags and tool calls exist, check if content IS reasoning
+                elif response_message.tool_calls and content:
+                    # In some models, the only content is reasoning before a tool call
                     reasoning = content
-                    content = None
+                    content = "" # Don't treat it as final content
                     reasoning_format = "content_as_reasoning"
 
             # Log reasoning if available (DEBUG level shows full, INFO shows preview)
@@ -201,13 +211,29 @@ class Agent:
                 else:
                     logger.info(f"\n--- REASONING ---\n{reasoning}")
             elif turn_count == 1:
-                # Warn on first turn — if the model never reasons on turn 1,
-                # it's unlikely to reason on later turns either
-                logger.warning(f"No reasoning detected on first turn for model {self.model}. "
-                               f"Glass-box judging will not be possible for this run.")
+                logger.warning(f"No reasoning detected on first turn for model {self.model}.")
 
-            # Append raw response message to preserve extra_content (Google thoughtSignature)
-            messages.append(response_message)
+            # Build the assistant message for the next turn in the conversation
+            # We convert to a dict to ensure all OpenRouter-specific fields are preserved
+            # when passed back in the 'messages' list of the next request.
+            assistant_msg_for_next_turn = {
+                "role": "assistant",
+                "content": content
+            }
+            if response_message.tool_calls:
+                assistant_msg_for_next_turn["tool_calls"] = response_message.tool_calls
+            
+            # Pass reasoning back to preserve CoT context (CRITICAL for multi-turn)
+            if reasoning:
+                # Use 'reasoning' as the primary string field
+                assistant_msg_for_next_turn["reasoning"] = reasoning
+            
+            # If we have structured details, pass them back unmodified to ensure 
+            # continuity (especially for tool calls/summarized/encrypted reasoning)
+            if reasoning_details:
+                assistant_msg_for_next_turn["reasoning_details"] = reasoning_details
+            
+            messages.append(assistant_msg_for_next_turn)
 
             # Log entry
             log_entry = {
