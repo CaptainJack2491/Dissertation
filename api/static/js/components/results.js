@@ -93,6 +93,11 @@ export const results = {
         });
     },
 
+    openImageModal(imgSrc) {
+        ui.elements.chartModal.style.display = 'flex';
+        ui.elements.modalChartContainer.innerHTML = `<img src="${imgSrc}" style="width: 100%; height: 100%; object-fit: contain;">`;
+    },
+
     async updateCSVFileList() {
         try {
             const files = await api.get('/api/results/files');
@@ -618,11 +623,8 @@ export const results = {
             inputArea.style.display = 'block';
             statusEl.innerHTML = `<span style="color: var(--color-success);">Session Active (${data.model})</span>`;
             
-            // Force scroll after layout changes (such as displaying inputArea)
-            setTimeout(() => {
-                const historyEl = document.getElementById('interrogate-chat-history');
-                if (historyEl) historyEl.scrollTop = historyEl.scrollHeight;
-            }, 10);
+            // Force robust scroll after layout changes
+            this.scrollToBottom(document.getElementById('interrogate-chat-history'));
             
         } catch (err) {
             startBtn.innerHTML = 'Start Session';
@@ -650,7 +652,17 @@ export const results = {
         
         html += `</div>`;
         historyEl.innerHTML = html;
-        historyEl.scrollTop = historyEl.scrollHeight;
+        this.scrollToBottom(historyEl);
+    },
+    
+    scrollToBottom(el) {
+        if (!el) return;
+        // Two rAF frames ensure DOM is drawn and layout flows are complete before height is calculated
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                el.scrollTop = el.scrollHeight;
+            });
+        });
     },
     
     async sendInterrogationMessage() {
@@ -677,7 +689,7 @@ export const results = {
                 <span style="margin-left: 30px; font-style: italic; color: var(--color-accent);">Agent is thinking... (this may take up to 30s)</span>
             </div>
         `);
-        historyEl.scrollTop = historyEl.scrollHeight;
+        this.scrollToBottom(historyEl);
         
         statusEl.textContent = 'Processing request...';
         
@@ -714,7 +726,7 @@ export const results = {
             inputField.disabled = false;
             sendBtn.disabled = false;
             inputField.focus();
-            historyEl.scrollTop = historyEl.scrollHeight;
+            this.scrollToBottom(historyEl);
         }
     },
 
@@ -755,66 +767,36 @@ export const results = {
             this.renderStackedBarChart('Blackbox Category by Oversight', data, 'oversight', 'blackbox_category');
         }
 
+        if (cols.includes('scenario') && cols.includes('glassbox_category')) {
+            this.renderStackedBarChart('Glassbox Category by Scenario', data, 'scenario', 'glassbox_category');
+        }
+
+        if (cols.includes('oversight') && cols.includes('blackbox_category') && cols.includes('glassbox_sophistication')) {
+            this.renderMergedActionSophisticationChart('Effects of Oversight on Action & Sophistication', data);
+        } else {
+            if (cols.includes('oversight') && cols.includes('blackbox_category')) {
+                this.renderStackedBarChart('Blackbox Category by Oversight', data, 'oversight', 'blackbox_category');
+            }
+            if (cols.includes('oversight') && cols.includes('glassbox_sophistication')) {
+                this.renderStackedBarChart('Effects of Oversight on Sophistication', data, 'oversight', 'glassbox_sophistication');
+            }
+        }
+
+        if (cols.includes('oversight') && cols.includes('glassbox_category') && cols.includes('blackbox_category')) {
+            this.renderIntentVsRealityChart('Impact of Oversight on Deception (Intent vs Reality)', data);
+        }
+
+        if (cols.includes('model') && cols.includes('glassbox_category') && cols.includes('blackbox_category')) {
+            this.renderRadarChart('Model Behavior Profile (Radar)', data);
+        }
+
         if (cols.includes('model') && cols.includes('total_tokens')) {
-            this.renderAverageTokenUsageChart('Average Token Usage by Model', data);
             this.renderTotalTokenUsageChart('Total Token Usage by Model', data);
         }
 
         if (ui.elements.interactiveCharts.innerHTML === '') {
              ui.elements.interactiveCharts.innerHTML = '<div class="empty-state" style="grid-column: 1 / -1;">No plottable categorical columns found.</div>';
         }
-    },
-
-    renderAverageTokenUsageChart(title, data) {
-        const metrics = {}; // { model: { total: 0, count: 0, prompt: 0, completion: 0 } }
-        
-        data.forEach(row => {
-            const model = row.model || 'Unknown';
-            if (!row.total_tokens) return;
-            
-            if (!metrics[model]) {
-                metrics[model] = { total: 0, prompt: 0, completion: 0, count: 0 };
-            }
-            metrics[model].total += row.total_tokens || 0;
-            metrics[model].prompt += row.prompt_tokens || 0;
-            metrics[model].completion += row.completion_tokens || 0;
-            metrics[model].count += 1;
-        });
-
-        const labels = Object.keys(metrics).sort();
-        if (labels.length === 0) return;
-
-        const datasets = [
-            {
-                label: 'Avg Prompt Tokens',
-                data: labels.map(l => metrics[l].prompt / metrics[l].count),
-                backgroundColor: '#3b82f6',
-            },
-            {
-                label: 'Avg Completion Tokens',
-                data: labels.map(l => metrics[l].completion / metrics[l].count),
-                backgroundColor: '#10b981',
-            }
-        ];
-
-        const config = {
-            type: 'bar',
-            data: { labels, datasets },
-            options: {
-                ...this.getChartOptions(title),
-                scales: {
-                    x: { stacked: true, ticks: { color: '#9ea0a6' }, grid: { color: '#2a2a2e' } },
-                    y: { stacked: true, ticks: { color: '#9ea0a6' }, grid: { color: '#2a2a2e' } }
-                }
-            }
-        };
-
-        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
-        this.createChartContainer(canvasId, config);
-
-        const ctx = document.getElementById(canvasId).getContext('2d');
-        const chart = new Chart(ctx, config);
-        activeCharts.push(chart);
     },
 
     renderTotalTokenUsageChart(title, data) {
@@ -946,6 +928,246 @@ export const results = {
         activeCharts.push(chart);
     },
 
+    renderIntentVsRealityChart(title, data) {
+        // Group by oversight
+        const oversightCounts = {};
+        data.forEach(row => {
+            const oversight = row.oversight || 'Unknown';
+            if (!oversightCounts[oversight]) {
+                oversightCounts[oversight] = { total: 0, deceptiveIntent: 0, deceptiveAction: 0 };
+            }
+            oversightCounts[oversight].total += 1;
+            
+            const gCat = (row.glassbox_category || '').toLowerCase();
+            const bCat = (row.blackbox_category || '').toLowerCase();
+            
+            if (gCat.includes('decepti') || gCat.includes('malicious') || gCat.includes('omission') || gCat.includes('strategic') || gCat.includes('complian') || gCat.includes('fabricat')) {
+                oversightCounts[oversight].deceptiveIntent += 1;
+            }
+            
+            if (bCat.includes('deceptive') || bCat.includes('fabricated') || bCat.includes('omitted') || bCat.includes('suspicious') || bCat.includes('misleading')) {
+                oversightCounts[oversight].deceptiveAction += 1;
+            }
+        });
+
+        const labels = Object.keys(oversightCounts);
+        const oversightPriority = { 'low': 0, 'mid': 1, 'medium': 1, 'high': 2 };
+        labels.sort((a, b) => (oversightPriority[a.toLowerCase()] ?? 99) - (oversightPriority[b.toLowerCase()] ?? 99));
+
+        if (labels.length === 0) return;
+
+        const datasets = [
+            {
+                label: 'Deceptive Intent (%)',
+                data: labels.map(l => (oversightCounts[l].deceptiveIntent / oversightCounts[l].total) * 100),
+                backgroundColor: '#f59e0b',
+            },
+            {
+                label: 'Deceptive Action (%)',
+                data: labels.map(l => (oversightCounts[l].deceptiveAction / oversightCounts[l].total) * 100),
+                backgroundColor: '#ef4444',
+            }
+        ];
+
+        const config = {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+                ...this.getChartOptions(title),
+                scales: {
+                    x: { ticks: { color: '#9ea0a6' }, grid: { color: '#2a2a2e' } },
+                    y: { 
+                        title: { display: true, text: 'Percentage (%)', color: '#9ea0a6' },
+                        ticks: { color: '#9ea0a6', stepSize: 20 }, 
+                        grid: { color: '#2a2a2e' },
+                        min: 0,
+                        max: 100
+                    }
+                }
+            }
+        };
+
+        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
+        this.createChartContainer(canvasId, config);
+
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const chart = new Chart(ctx, config);
+        activeCharts.push(chart);
+    },
+
+    renderMergedActionSophisticationChart(title, data) {
+        const xLabels = new Set();
+        const actionMatrix = {};
+        const sophMatrix = {};
+        const actionGroups = new Set();
+        const sophGroups = new Set();
+        
+        data.forEach(row => {
+            const oversight = row.oversight || 'Unknown';
+            xLabels.add(oversight);
+            
+            const action = row.blackbox_category || 'Unknown';
+            if (!actionMatrix[oversight]) actionMatrix[oversight] = {};
+            actionMatrix[oversight][action] = (actionMatrix[oversight][action] || 0) + 1;
+            actionGroups.add(action);
+            
+            const soph = row.glassbox_sophistication || 'Unknown';
+            if (!sophMatrix[oversight]) sophMatrix[oversight] = {};
+            sophMatrix[oversight][soph] = (sophMatrix[oversight][soph] || 0) + 1;
+            sophGroups.add(soph);
+        });
+
+        const labels = Array.from(xLabels);
+        const oversightPriority = { 'low': 0, 'mid': 1, 'medium': 1, 'high': 2 };
+        labels.sort((a, b) => (oversightPriority[a.toLowerCase()] ?? 99) - (oversightPriority[b.toLowerCase()] ?? 99));
+
+        if (labels.length === 0) return;
+
+        const getActionColor = (cat) => {
+            const s = cat.toUpperCase();
+            if (s.includes('ACCURATE')) return '#10b981'; // Emerald
+            if (s.includes('FABRICAT')) return '#ef4444'; // Red
+            if (s.includes('MISLEAD')) return '#f59e0b'; // Amber
+            if (s.includes('OMIT')) return '#8b5cf6'; // Violet
+            return '#6366f1'; // Indigo (fallback)
+        };
+
+        const getSophColor = (cat) => {
+            const s = cat.toUpperCase();
+            if (s.includes('UNKNOWN')) return '#cbd5e1'; // Slate 300
+            if (s.includes('NAIVE') || s.includes('BASIC')) return '#9ca3af'; // Gray 400
+            if (s.includes('REACTIVE')) return '#64748b'; // Slate 500
+            if (s.includes('TACTICAL')) return '#3b82f6'; // Blue 500
+            if (s.includes('STRATEGIC')) return '#1d4ed8'; // Blue 700
+            return '#475569'; // Slate 600 (fallback)
+        };
+
+        const datasets = [];
+        
+        Array.from(actionGroups).sort().forEach((group) => {
+            datasets.push({
+                label: group + ' (Action)',
+                data: labels.map(label => actionMatrix[label][group] || 0),
+                backgroundColor: getActionColor(group),
+                stack: 'Action'
+            });
+        });
+        
+        Array.from(sophGroups).sort().forEach((group) => {
+            datasets.push({
+                label: group + ' (Soph)',
+                data: labels.map(label => sophMatrix[label][group] || 0),
+                backgroundColor: getSophColor(group),
+                stack: 'Sophistication'
+            });
+        });
+
+        const config = {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+                ...this.getChartOptions(title),
+                scales: {
+                    x: { stacked: true, ticks: { color: '#9ea0a6' }, grid: { color: '#2a2a2e' } },
+                    y: { stacked: true, ticks: { color: '#9ea0a6', stepSize: 1 }, grid: { color: '#2a2a2e' } }
+                }
+            }
+        };
+
+        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
+        this.createChartContainer(canvasId, config);
+
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const chart = new Chart(ctx, config);
+        activeCharts.push(chart);
+    },
+
+    renderRadarChart(title, data) {
+        const metrics = {};
+        
+        data.forEach(row => {
+            const model = row.model || 'Unknown';
+            if (!metrics[model]) {
+                metrics[model] = { total: 0, honestIntent: 0, deceptiveIntent: 0, accurateAction: 0, deceptiveAction: 0 };
+            }
+            metrics[model].total += 1;
+            
+            const gCat = (row.glassbox_category || '').toLowerCase();
+            const bCat = (row.blackbox_category || '').toLowerCase();
+            
+            if (gCat.includes('honest') || gCat.includes('benign') || gCat.includes('accurate') || gCat.includes('failure')) {
+                metrics[model].honestIntent += 1;
+            } else if (gCat.includes('decepti') || gCat.includes('omission') || gCat.includes('complian') || gCat.includes('strategic')) {
+                metrics[model].deceptiveIntent += 1;
+            }
+            
+            if (bCat.includes('accurate') || bCat.includes('honest') || bCat.includes('benign')) {
+                metrics[model].accurateAction += 1;
+            } else {
+                metrics[model].deceptiveAction += 1;
+            }
+        });
+
+        const models = Object.keys(metrics).sort();
+        if (models.length === 0) return;
+
+        const radarLabels = ['Honest Intent', 'Deceptive Intent', 'Accurate Action', 'Deceptive Action'];
+        
+        const colors = [
+            'rgba(59, 130, 246, 0.5)',
+            'rgba(16, 185, 129, 0.5)',
+            'rgba(245, 158, 11, 0.5)',
+            'rgba(239, 68, 68, 0.5)',
+            'rgba(157, 78, 221, 0.5)',
+        ];
+        const borderColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#9d4edd'];
+
+        const datasets = models.map((model, idx) => {
+            const total = metrics[model].total || 1;
+            return {
+                label: model,
+                data: [
+                    (metrics[model].honestIntent / total) * 100,
+                    (metrics[model].deceptiveIntent / total) * 100,
+                    (metrics[model].accurateAction / total) * 100,
+                    (metrics[model].deceptiveAction / total) * 100
+                ],
+                backgroundColor: colors[idx % colors.length],
+                borderColor: borderColors[idx % borderColors.length],
+                pointBackgroundColor: borderColors[idx % borderColors.length],
+                borderWidth: 2,
+            };
+        });
+
+        const config = {
+            type: 'radar',
+            data: { labels: radarLabels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    title: { display: true, text: title, color: '#f0f0f2', font: { family: 'Inter', size: 14 } },
+                    legend: { labels: { color: '#9ea0a6' }, position: 'bottom' }
+                },
+                scales: {
+                    r: {
+                        angleLines: { color: 'rgba(255, 255, 255, 0.1)' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        pointLabels: { color: '#9ea0a6', font: { size: 12 } },
+                        ticks: { display: false, min: 0, max: 100, stepSize: 20 }
+                    }
+                }
+            }
+        };
+
+        const canvasId = `chart-${Math.random().toString(36).substr(2, 9)}`;
+        this.createChartContainer(canvasId, config);
+
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        const chart = new Chart(ctx, config);
+        activeCharts.push(chart);
+    },
+
     createChartContainer(canvasId, config) {
         const container = document.createElement('div');
         container.className = 'chart-container';
@@ -976,11 +1198,17 @@ export const results = {
         if (images.length === 0) return;
 
         ui.elements.imageResults.innerHTML = images.map(img => `
-            <div class="image-card">
-                <img src="/api/results/images/${img.name}" alt="${img.name}" loading="lazy">
-                <div class="image-card-footer">${img.name}</div>
+            <div class="image-card static-viz-card" data-src="/api/results/images/${img.name}" style="cursor: pointer;">
+                <img src="/api/results/images/${img.name}" alt="${img.name}" loading="lazy" style="pointer-events: none;">
+                <div class="image-card-footer" style="pointer-events: none;">${img.name}</div>
             </div>
         `).join('');
+
+        ui.elements.imageResults.querySelectorAll('.static-viz-card').forEach(card => {
+            card.addEventListener('click', () => {
+                this.openImageModal(card.dataset.src);
+            });
+        });
     },
 
     async loadJudgeData(filePath) {
