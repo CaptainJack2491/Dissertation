@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent Evaluation Dashboard</title>
+    <!-- CSS Modules -->
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/results.css">
+    <!-- Google Fonts - Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard-root">
+        <!-- Sidebar: Data Filters -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <h1>AI Dashboard</h1>
+            </div>
+
+            <nav class="config-panel">
+                <div class="form-group">
+                    <label class="form-label">Data Source (CSV)</label>
+                    <select id="csv-file-select" class="input-field">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                
+                <div class="form-group" style="margin-top: var(--space-lg);">
+                    <label class="form-label">Global Filters</label>
+                    <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: var(--space-md);">Toggle multiple attributes:</div>
+                    
+                    <div class="filter-section">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <label class="form-label" style="font-size: 0.65rem;">Models</label>
+                            <div class="filter-actions">
+                                <span class="filter-link" onclick="window.toggleFilter('model', true)">All</span>
+                                <span class="filter-link" onclick="window.toggleFilter('model', false)">None</span>
+                            </div>
+                        </div>
+                        <div id="filter-model-list" class="checkbox-group"></div>
+                    </div>
+                    
+                    <div class="filter-section" style="margin-top: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <label class="form-label" style="font-size: 0.65rem;">Scenarios</label>
+                            <div class="filter-actions">
+                                <span class="filter-link" onclick="window.toggleFilter('scenario', true)">All</span>
+                                <span class="filter-link" onclick="window.toggleFilter('scenario', false)">None</span>
+                            </div>
+                        </div>
+                        <div id="filter-scenario-list" class="checkbox-group"></div>
+                    </div>
+                    
+                    <div class="filter-section" style="margin-top: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <label class="form-label" style="font-size: 0.65rem;">Oversight</label>
+                            <div class="filter-actions">
+                                <span class="filter-link" onclick="window.toggleFilter('oversight', true)">All</span>
+                                <span class="filter-link" onclick="window.toggleFilter('oversight', false)">None</span>
+                            </div>
+                        </div>
+                        <div id="filter-oversight-list" class="checkbox-group"></div>
+                    </div>
+                </div>
+
+                <div class="sidebar-actions" style="margin-top: auto;">
+                    <button id="refresh-btn" class="btn btn-primary" style="width: 100%;">Apply Filters</button>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Viewport: Results & Analytics -->
+        <main class="main-viewport">
+            <header class="app-header">
+                <div class="tab-nav" style="border-bottom: none; background: none; padding: 0;">
+                    <button class="tab-trigger active" data-tab="images">Visual Analytics</button>
+                    <button class="tab-trigger" data-tab="csv">Raw Dataset</button>
+                    <button class="tab-trigger" data-tab="judge">Judge Reports</button>
+                </div>
+            </header>
+
+            <div class="viewport-content">
+                <div id="tab-images" class="tab-panel active">
+                    <div class="results-controls">
+                        <h2 style="font-size: 1.1rem; color: var(--color-text-primary); margin: 0;">Interactive Dashboard</h2>
+                        <span id="data-stats" style="margin-left: auto; font-size: 0.8rem; font-weight: 600; color: var(--color-accent);"></span>
+                    </div>
+                    
+                    <div id="interactive-charts" class="image-grid" style="margin-top: var(--space-md);">
+                        <div class="empty-state" style="grid-column: 1 / -1;">Select a CSV to generate visuals.</div>
+                    </div>
+                    
+                    <h3 style="margin: var(--space-xl) var(--space-lg) var(--space-sm); font-size: 0.8rem; text-transform: uppercase; color: var(--color-text-muted); border-bottom: 1px solid var(--color-bg-3); padding-bottom: 8px;">Static Visualizations (viz/)</h3>
+                    <div id="image-results" class="image-grid">
+                        <div class="empty-state" style="grid-column: 1 / -1;">No visualizations generated.</div>
+                    </div>
+                </div>
+
+                <div id="tab-csv" class="tab-panel">
+                    <div id="csv-results" class="results-container">
+                        <div class="empty-state">No active data.</div>
+                    </div>
+                </div>
+                
+                <div id="tab-judge" class="tab-panel">
+                    <div class="results-controls">
+                        <label class="form-label">Select Report:</label>
+                        <select id="judge-file-select" class="input-field" style="max-width: 400px; display: inline-block; margin-left: var(--space-sm);">
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div id="judge-results" class="results-container">
+                        <div class="empty-state">No judge reports.</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Main Entry Point -->
+    <script type="module" src="/static/js/main.js"></script>
+
+    <!-- Chart Zoom Modal -->
+    <div id="chart-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <button id="close-modal-btn" class="btn-close">&times;</button>
+            <div id="modal-chart-container" class="chart-container" style="height: 80vh; border: none; background: transparent;"></div>
+        </div>
+    </div>
+</body>
+</html>
