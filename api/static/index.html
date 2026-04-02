@@ -15,6 +15,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Marked.js for Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <div class="dashboard-root">
@@ -151,7 +153,15 @@
     <div id="inspector-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content wide">
             <button id="close-inspector-btn" class="btn-close">&times;</button>
-            <div id="inspector-content" style="height: 100%; overflow: hidden;">
+            <div id="inspector-header" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: var(--space-md); border-bottom: 1px solid var(--color-bg-3); margin-bottom: var(--space-md); padding-right: 40px;">
+                <h2 id="inspector-title" style="font-size: 1.1rem; margin: 0;">Run Details</h2>
+                <div class="view-toggle">
+                    <button class="toggle-btn active" data-view="visual">Visual</button>
+                    <button class="toggle-btn" data-view="raw">Raw JSON</button>
+                    <button class="toggle-btn" data-view="interrogate" style="color: var(--color-accent); border-color: var(--color-accent);">Interrogate</button>
+                </div>
+            </div>
+            <div id="inspector-content" style="height: calc(100% - 60px); overflow: hidden;">
                 <!-- Populated via JS -->
                 <div class="empty-state">Loading details...</div>
             </div>

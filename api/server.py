@@ -24,7 +24,13 @@ from fastapi.middleware.cors import CORSMiddleware
 # Add project root to path to import core modules
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from src.config_loader import ConfigLoader
+from src.agent import Agent
+from src.interrogate import get_provider_from_log, sanitize_for_api
+from src.vfs import VFS
+from pydantic import BaseModel
+import uuid
 
 app = FastAPI(
     title="AI Agent Evaluation Dashboard",
@@ -44,6 +50,17 @@ app.add_middleware(
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+# Interrogation Session Cache
+# In a production app, use Redis. For local dashboard, dict is fine.
+ACTIVE_SESSIONS: Dict[str, Agent] = {}
+
+class InterrogateStartRequest(BaseModel):
+    log_path: str
+
+class InterrogateChatRequest(BaseModel):
+    session_id: str
+    message: str
 
 
 def get_config():
@@ -305,6 +322,106 @@ async def browse_log(path: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ============================================================================
+# Interrogation Endpoints
+# ============================================================================
+
+@app.post("/api/interrogate/start")
+async def start_interrogation(req: InterrogateStartRequest):
+    """Start an interactive session from a log file."""
+    if ".." in req.log_path:
+        raise HTTPException(status_code=400, detail="Invalid path")
+        
+    file_path = PROJECT_ROOT / req.log_path
+    if not file_path.exists() or file_path.suffix != '.json':
+        raise HTTPException(status_code=404, detail="Log file not found")
+        
+    try:
+        with open(file_path) as f:
+            log_data = json.load(f)
+            
+        conversation_history = log_data.get("conversation", [])
+        if not conversation_history:
+            raise HTTPException(status_code=400, detail="No conversation history in log")
+            
+        system_prompt = conversation_history[0].get('content', '') if conversation_history else ''
+        scenario = log_data.get('scenario', 'interrogation')
+        oversight_level = log_data.get('oversight_level', 'N/A')
+        
+        provider_config, model_config = get_provider_from_log(log_data)
+        
+        # Load VFS state if present
+        final_vfs_state = log_data.get("final_vfs_state")
+        
+        # Determine goal_type from log or default to standard
+        goal_type = log_data.get("goal_type", "")
+        
+        # VFS is singleton but we pass state nicely
+        vfs_instance = VFS.get_instance(fs_data=final_vfs_state) if final_vfs_state else VFS.get_instance()
+        
+        agent = Agent.from_configs(
+            system_prompt=system_prompt,
+            provider_config=provider_config,
+            model_config=model_config,
+            scenario=scenario,
+            oversight_level=oversight_level,
+            user_prompt_type=log_data.get('user_prompt_type', 'interrogation'),
+            goal_type=goal_type,
+            save_vfs_state=True if final_vfs_state else False,
+            vfs_instance=vfs_instance
+        )
+        
+        clean_history = sanitize_for_api(conversation_history)
+        agent.load_conversation(
+            conversation_history=clean_history,
+            total_tokens=log_data.get('total_tokens', 0),
+            prompt_tokens=log_data.get('prompt_tokens', 0),
+            completion_tokens=log_data.get('completion_tokens', 0)
+        )
+        
+        session_id = str(uuid.uuid4())
+        ACTIVE_SESSIONS[session_id] = agent
+        
+        return {"session_id": session_id, "status": "active", "model": agent.model}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/interrogate/chat")
+async def chat_interrogation(req: InterrogateChatRequest):
+    """Send a message to an active interrogation session."""
+    if req.session_id not in ACTIVE_SESSIONS:
+        raise HTTPException(status_code=404, detail="Session expired or not found")
+        
+    agent = ACTIVE_SESSIONS[req.session_id]
+    
+    try:
+        # Blocks until completion
+        agent.chat(req.message)
+        
+        # Save log after every turn
+        log_file = agent.save_logs(output_dir="interrogation_logs", scenario=agent.scenario, oversight_level=agent.oversight_level)
+        
+        # Extract the latest response logic to send back
+        response_msg = None
+        for msg in reversed(agent.logs):
+            if msg.get("role") == "assistant":
+                response_msg = msg
+                break
+                
+        if not response_msg:
+             raise HTTPException(status_code=500, detail="No assistant response generated")
+             
+        return {
+            "content": response_msg.get("content", ""),
+            "reasoning": response_msg.get("reasoning", ""),
+            "tool_calls": response_msg.get("tool_calls", []),
+            "log_saved_at": log_file
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

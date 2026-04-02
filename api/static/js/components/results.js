@@ -11,6 +11,11 @@ let currentCsvDir = ""; // Directory of the active CSV
 let currentVisibleColumns = []; // Track which columns are shown in Table
 let modalChart = null;
 
+// Inspector state
+let currentInspectorLog = null;
+let currentInspectorRow = null;
+let currentViewMode = 'visual'; // 'visual' or 'raw'
+
 export const results = {
     async init() {
         // Bind events
@@ -38,10 +43,20 @@ export const results = {
         });
 
         document.addEventListener('click', (e) => {
-            if (!ui.elements.columnDropdown.contains(e.target) && e.target !== ui.elements.btnToggleColumns) {
+            if (ui.elements.columnDropdown && !ui.elements.columnDropdown.contains(e.target) && e.target !== ui.elements.btnToggleColumns) {
                 ui.elements.columnDropdown.style.display = 'none';
             }
         });
+
+        // Inspector View Toggle
+        if (ui.elements.inspectorToggleBtns) {
+            ui.elements.inspectorToggleBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const mode = btn.dataset.view;
+                    this.setViewMode(mode);
+                });
+            });
+        }
         
         await Promise.all([
             this.updateCSVFileList(),
@@ -311,86 +326,405 @@ export const results = {
 
     closeInspector() {
         ui.elements.inspectorModal.style.display = 'none';
-        ui.elements.inspectorContent.innerHTML = '<div class="empty-state">Loading details...</div>';
+        currentInspectorLog = null;
+        currentInspectorRow = null;
+    },
+
+    setViewMode(mode) {
+        currentViewMode = mode;
+        if (ui.elements.inspectorToggleBtns) {
+            ui.elements.inspectorToggleBtns.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === mode);
+            });
+        }
+        this.renderInspectorContent();
     },
 
     async showRowInspector(rowData) {
+        currentInspectorRow = rowData;
+        currentInspectorLog = null;
         ui.elements.inspectorModal.style.display = 'flex';
+        ui.elements.inspectorTitle.textContent = `Run: ${rowData.run_id || rowData.RUN_ID || 'Details'}`;
         
-        // Initial layout
-        ui.elements.inspectorContent.innerHTML = `
-            <div class="inspector-layout">
-                <aside class="inspector-sidebar">
-                    <h2 style="margin-bottom: var(--space-md); font-size: 1rem;">Record Details</h2>
-                    <div id="inspector-fields">
-                        ${Object.entries(rowData).map(([key, val]) => `
-                            <div class="field-entry">
-                                <div class="field-label">${key}</div>
-                                <div class="field-value">${val ?? '<span style="color: var(--color-text-muted)">null</span>'}</div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </aside>
-                <main class="inspector-main">
-                    <div class="json-viewer-header">
-                        <h2 style="font-size: 1rem;">Raw Experiment Log</h2>
-                        <span id="log-status" style="font-size: 0.7rem; color: var(--color-text-secondary);">Checking for log file...</span>
-                    </div>
-                    <div id="log-viewer" class="json-viewer-container">
-                        <div class="empty-state">Searching for log file associated with this run...</div>
-                    </div>
-                </main>
-            </div>
-        `;
+        this.setViewMode('visual'); // Default to visual
 
         // Strategy to find the log:
-        // 1. rowData.log_path
-        // 2. rowData.RUN_ID
-        
         let rawPath = rowData.log_path || rowData.RUN_ID || rowData.run_id;
         if (!rawPath) {
-            document.getElementById('log-viewer').innerHTML = '<div class="empty-state">No log path metadata found in record.</div>';
-            document.getElementById('log-status').textContent = `Missing log metadata.`;
+            ui.elements.inspectorContent.innerHTML = '<div class="empty-state">No log path metadata found in record.</div>';
             return;
         }
 
-        // Normalize path: add .json if missing
         let jsonPath = rawPath.endsWith('.json') ? rawPath : (rawPath + '.json');
-        
-        // Trial paths:
-        const trials = [
-            jsonPath,                         // Direct
-            currentCsvDir + jsonPath,         // Relative to CSV (e.g. logs/full_experiment/ + path)
-            'logs/' + jsonPath                // Absolute under logs/
-        ];
+        const trials = [jsonPath, currentCsvDir + jsonPath, 'logs/' + jsonPath];
 
         let loaded = false;
         for (const trial of trials) {
             if (loaded) break;
             try {
-                document.getElementById('log-status').textContent = `Trying: ${trial}`;
                 const logData = await api.get(`/api/logs/browse?path=${encodeURIComponent(trial)}`);
-                document.getElementById('log-viewer').textContent = JSON.stringify(logData, null, 2);
-                document.getElementById('log-status').textContent = `Log loaded: ${trial}`;
-                document.getElementById('log-status').style.color = 'var(--color-success)';
+                currentInspectorLog = logData;
+                currentInspectorLog._successfulPath = trial; // Track successful path
                 loaded = true;
+                this.renderInspectorContent();
             } catch (err) {
                 console.log(`Failed trial: ${trial}`);
             }
         }
 
         if (!loaded) {
-            document.getElementById('log-viewer').innerHTML = `
+            ui.elements.inspectorContent.innerHTML = `
                 <div class="empty-state" style="color: var(--color-danger)">
-                    Failed to load log file: API Error: 404<br>
+                    Failed to load log file.<br>
                     <div style="margin-top: 8px; color: var(--color-text-secondary); font-size: 0.7rem;">
                         Paths tried:<br>
                         ${trials.map(t => `- ${t}`).join('<br>')}
                     </div>
                 </div>`;
-            document.getElementById('log-status').textContent = `Error loading log.`;
-            document.getElementById('log-status').style.color = 'var(--color-danger)';
         }
+    },
+
+    renderInspectorContent() {
+        if (!currentInspectorLog && currentViewMode === 'visual') {
+            this.renderVisualLoading();
+            return;
+        }
+
+        if (currentViewMode === 'visual') {
+            this.renderVisualInspector();
+        } else if (currentViewMode === 'raw') {
+            this.renderRawInspector();
+        } else if (currentViewMode === 'interrogate') {
+            this.renderInterrogateInspector();
+        }
+    },
+
+    renderVisualLoading() {
+        ui.elements.inspectorContent.innerHTML = `
+            <div class="inspector-layout">
+                <aside class="inspector-sidebar">${this.renderRecordSidebar(currentInspectorRow)}</aside>
+                <main class="inspector-main">
+                    <div class="empty-state">Loading log file for full conversation view...</div>
+                </main>
+            </div>`;
+    },
+
+    renderRawInspector() {
+        const jsonStr = currentInspectorLog ? JSON.stringify(currentInspectorLog, null, 2) : "Log not loaded yet.";
+        ui.elements.inspectorContent.innerHTML = `
+            <div class="inspector-layout">
+                <aside class="inspector-sidebar">${this.renderRecordSidebar(currentInspectorRow)}</aside>
+                <main class="inspector-main">
+                    <div class="json-viewer-container">${jsonStr}</div>
+                </main>
+            </div>`;
+    },
+
+    renderRecordSidebar(rowData) {
+        return `
+            <div id="inspector-fields">
+                ${Object.entries(rowData).map(([key, val]) => {
+                    const hide = ['full_log', 'messages', 'log_path', 'RUN_ID', 'run_id'];
+                    if (hide.includes(key)) return ''; 
+                    const isJustification = key.includes('JUSTIFICATION');
+                    return `
+                        <div class="field-entry" ${isJustification ? 'style="margin-top: 12px; border-top: 1px dashed var(--color-bg-3); padding-top: 8px;"' : ''}>
+                            <div class="field-label">${key}</div>
+                            <div class="field-value" style="${isJustification ? 'font-size: 0.75rem; color: var(--color-text-secondary); line-height: 1.4; word-break: break-word;' : ''}" title="${val}">${val ?? '<span style="color: var(--color-text-muted)">null</span>'}</div>
+                        </div>`;
+                }).join('')}
+            </div>
+            ${currentInspectorLog?.final_vfs_state ? `
+                <h3 style="margin-top: var(--space-xl); margin-bottom: var(--space-md); font-size: 0.75rem; text-transform: uppercase; color: var(--color-accent); border-top: 1px solid var(--color-bg-3); padding-top: 16px;">Final VFS State</h3>
+                <div class="field-entry">
+                    ${Object.keys(currentInspectorLog.final_vfs_state['/']?.data || {}).map(f => `
+                        <div class="field-value" style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; margin-bottom: 4px; padding: 4px 8px; background: var(--color-bg-2); border-radius: 4px; border: 1px solid var(--color-bg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${f}">${f}</div>
+                    `).join('')}
+                </div>
+            ` : ''}
+        `;
+    },
+
+    renderVisualInspector() {
+        const row = currentInspectorRow;
+        const log = currentInspectorLog;
+        
+        let html = `<div class="inspector-layout">
+            <aside class="inspector-sidebar">${this.renderRecordSidebar(row)}</aside>
+            <main class="inspector-main">
+                <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+        `;
+
+        // Conversation
+        if (log && log.conversation) {
+            html += `<div class="chat-container">`;
+            log.conversation.forEach(msg => {
+                html += this.renderChatMessage(msg);
+            });
+            html += `</div>`;
+        } else {
+            html += `<div class="empty-state">Conversation data not found in log.</div>`;
+        }
+
+        html += `</div></main></div>`;
+        ui.elements.inspectorContent.innerHTML = html;
+    },
+
+    renderChatMessage(msg) {
+        const role = msg.role;
+        const content = typeof msg.content === 'object' ? JSON.stringify(msg.content, null, 2) : (msg.content || "");
+        const reasoning = msg.reasoning || this.extractReasoningFromContent(content);
+        let cleanContent = typeof content === 'string' ? content.replace(/<thought>[\s\S]*?<\/thought>/g, '').trim() : content;
+
+        let html = `<div class="message-bubble role-${role}">
+            <div class="bubble-header">${role}</div>`;
+
+        if (reasoning) {
+            const parsedReasoning = window.marked ? marked.parse(reasoning) : reasoning.replace(/\n/g, '<br>');
+            html += `<div class="reasoning-block">${parsedReasoning}</div>`;
+        }
+
+        // Only show main content for non-tool roles to avoid double rendering
+        if (cleanContent && role !== 'tool') {
+            const parsedContent = window.marked ? marked.parse(String(cleanContent)) : String(cleanContent).replace(/\n/g, '<br>');
+            html += `<div class="message-content">${parsedContent}</div>`;
+        }
+
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+            html += `<div class="tool-calls-container">`;
+            msg.tool_calls.forEach(tc => {
+                const func = tc.function || tc;
+                html += `<div class="tool-call-item">
+                    <span class="tool-call-name">${func.name}</span>(${func.arguments || ''})
+                </div>`;
+            });
+            html += `</div>`;
+        }
+
+        if (role === 'tool') {
+             const maxLength = 300;
+             const isLong = cleanContent.length > maxLength;
+             const displayContent = isLong ? cleanContent.substring(0, maxLength) + '...' : cleanContent;
+             
+             const parsedToolOutput = window.marked ? marked.parse(displayContent) : displayContent.replace(/\n/g, '<br>');
+             html += `
+                <div class="message-content" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; border: 1px solid rgba(16,185,129,0.2); margin-top: 8px;">
+                    <div style="margin-bottom: 4px; color: rgba(16,185,129,0.6); font-size: 0.6rem; text-transform: uppercase; font-weight: 800;">Output ${isLong ? '(Truncated)' : ''}</div>
+                    <div style="color: #10b981; opacity: 0.9;">${parsedToolOutput}</div>
+                </div>`;
+        }
+
+        html += `</div>`;
+        return html;
+    },
+
+    extractReasoningFromContent(content) {
+        if (typeof content !== 'string') return null;
+        const match = content.match(/<thought>([\s\S]*?)<\/thought>/);
+        return match ? match[1].trim() : null;
+    },
+
+    renderInterrogateInspector() {
+        const row = currentInspectorRow;
+        
+        let html = `<div class="inspector-layout">
+            <aside class="inspector-sidebar">${this.renderRecordSidebar(row)}</aside>
+            <main class="inspector-main" style="display: flex; flex-direction: column;">
+                <div id="interrogate-chat-history" style="flex: 1; overflow-y: auto; padding-right: 10px; margin-bottom: 20px;">
+                    <div class="empty-state">
+                        <h3>Interrogation Sandbox</h3>
+                        <p style="margin-top: 8px;">Start a dynamic session to continue the conversation with the agent from this point.</p>
+                        <button id="btn-start-interrogation" class="btn btn-primary" style="margin-top: 15px; padding: 8px 16px;">Start Session</button>
+                    </div>
+                </div>
+                <div id="interrogate-input-area" style="display: none; padding-top: 15px; border-top: 1px solid var(--color-bg-3);">
+                    <textarea id="interrogate-input" placeholder="Type your message..." style="width: 100%; min-height: 80px; padding: 10px; background: var(--color-bg-1); border: 1px solid var(--color-bg-3); color: var(--color-text-primary); border-radius: 4px; font-family: 'Inter', sans-serif; resize: vertical;"></textarea>
+                    <div style="display: flex; justify-content: flex-end; margin-top: 10px; align-items: center;">
+                        <span id="interrogate-status" style="margin-right: auto; font-size: 0.8rem; color: var(--color-text-muted);"></span>
+                        <button id="btn-send-interrogate" class="btn btn-primary">Send Message</button>
+                    </div>
+                </div>
+            </main>
+        </div>`;
+        ui.elements.inspectorContent.innerHTML = html;
+        
+        setTimeout(() => {
+            const startBtn = document.getElementById('btn-start-interrogation');
+            if (startBtn) startBtn.addEventListener('click', () => this.startInterrogationSession());
+            
+            const sendBtn = document.getElementById('btn-send-interrogate');
+            if (sendBtn) sendBtn.addEventListener('click', () => this.sendInterrogationMessage());
+            
+            const inputField = document.getElementById('interrogate-input');
+            if (inputField) {
+                inputField.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        this.sendInterrogationMessage();
+                    }
+                });
+            }
+        }, 0);
+    },
+    
+    async startInterrogationSession() {
+        const rowData = currentInspectorRow;
+        const statusEl = document.getElementById('interrogate-status');
+        const inputArea = document.getElementById('interrogate-input-area');
+        const startBtn = document.getElementById('btn-start-interrogation');
+        
+        // Use the successful path established during GET
+        let targetLogPath = currentInspectorLog && currentInspectorLog._successfulPath 
+                            ? currentInspectorLog._successfulPath : null;
+                            
+        if (!targetLogPath) {
+            // Fallback heuristics just in case
+            let rawPath = rowData.log_path || rowData.RUN_ID || rowData.run_id;
+            if (!rawPath) return;
+            let jsonPath = rawPath.endsWith('.json') ? rawPath : (rawPath + '.json');
+            targetLogPath = currentCsvDir ? currentCsvDir + jsonPath : jsonPath;
+        }
+        
+        startBtn.innerHTML = 'Initializing...';
+        startBtn.disabled = true;
+        
+        try {
+            let response = await fetch('/api/interrogate/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ log_path: targetLogPath })
+            });
+            
+            if (!response.ok) {
+                // Secondary fallback attempt
+                let rawPath = rowData.log_path || rowData.RUN_ID || rowData.run_id;
+                let jsonPath = rawPath.endsWith('.json') ? rawPath : (rawPath + '.json');
+                response = await fetch('/api/interrogate/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ log_path: jsonPath })
+                });
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || "Failed to initialize session. Could not load log.");
+                }
+            }
+            const data = await response.json();
+            
+            this.currentInterrogationSession = data.session_id;
+            this.interrogationNewMessages = []; // Reset local new messages
+            
+            this.renderInterrogateHistory();
+            
+            inputArea.style.display = 'block';
+            statusEl.innerHTML = `<span style="color: var(--color-success);">Session Active (${data.model})</span>`;
+            
+            // Force scroll after layout changes (such as displaying inputArea)
+            setTimeout(() => {
+                const historyEl = document.getElementById('interrogate-chat-history');
+                if (historyEl) historyEl.scrollTop = historyEl.scrollHeight;
+            }, 10);
+            
+        } catch (err) {
+            startBtn.innerHTML = 'Start Session';
+            startBtn.disabled = false;
+            alert(err.message);
+        }
+    },
+    
+    renderInterrogateHistory() {
+        const historyEl = document.getElementById('interrogate-chat-history');
+        if (!historyEl || !currentInspectorLog) return;
+        
+        let html = `<div class="chat-container">`;
+        if (currentInspectorLog.conversation) {
+            currentInspectorLog.conversation.forEach(msg => {
+                html += this.renderChatMessage(msg);
+            });
+        }
+        
+        if (this.interrogationNewMessages) {
+             this.interrogationNewMessages.forEach(msg => {
+                  html += this.renderChatMessage(msg);
+             });
+        }
+        
+        html += `</div>`;
+        historyEl.innerHTML = html;
+        historyEl.scrollTop = historyEl.scrollHeight;
+    },
+    
+    async sendInterrogationMessage() {
+        const inputField = document.getElementById('interrogate-input');
+        const sendBtn = document.getElementById('btn-send-interrogate');
+        const statusEl = document.getElementById('interrogate-status');
+        const historyEl = document.getElementById('interrogate-chat-history');
+        
+        const message = inputField.value.trim();
+        if (!message || !this.currentInterrogationSession) return;
+        
+        inputField.value = '';
+        inputField.disabled = true;
+        sendBtn.disabled = true;
+        
+        const userMsg = { role: 'user', content: message };
+        this.interrogationNewMessages.push(userMsg);
+        this.renderInterrogateHistory();
+        
+        const thinkingId = 'thinking-' + Date.now();
+        historyEl.insertAdjacentHTML('beforeend', `
+            <div id="${thinkingId}" class="message-bubble role-assistant thinking-pulse">
+                <div class="pulse-ring"></div>
+                <span style="margin-left: 30px; font-style: italic; color: var(--color-accent);">Agent is thinking... (this may take up to 30s)</span>
+            </div>
+        `);
+        historyEl.scrollTop = historyEl.scrollHeight;
+        
+        statusEl.textContent = 'Processing request...';
+        
+        try {
+            const response = await fetch('/api/interrogate/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: this.currentInterrogationSession,
+                    message: message
+                })
+            });
+            
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || "Error processing chat");
+            
+            document.getElementById(thinkingId)?.remove();
+            
+            const assistantMsg = { 
+                role: 'assistant', 
+                content: data.content,
+                reasoning: data.reasoning,
+                tool_calls: data.tool_calls
+            };
+            this.interrogationNewMessages.push(assistantMsg);
+            
+            this.renderInterrogateHistory();
+            statusEl.textContent = `Log saved incrementally (${new Date().toLocaleTimeString()})`;
+            
+        } catch (err) {
+            document.getElementById(thinkingId)?.remove();
+            statusEl.innerHTML = `<span style="color: var(--color-danger);">Error: ${err.message}</span>`;
+        } finally {
+            inputField.disabled = false;
+            sendBtn.disabled = false;
+            inputField.focus();
+            historyEl.scrollTop = historyEl.scrollHeight;
+        }
+    },
+
+    getCategoryColor(cat) {
+        if (!cat) return 'var(--color-accent)';
+        const c = cat.toLowerCase();
+        if (c.includes('deceptive') || c.includes('fabricated') || c.includes('harmful')) return '#ef4444';
+        if (c.includes('omitted') || c.includes('suspicious')) return '#f59e0b';
+        if (c.includes('accurate') || c.includes('honest')) return '#10b981';
+        return 'var(--color-accent)';
     },
 
     renderCharts(data) {
