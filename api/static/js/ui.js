@@ -21,7 +21,18 @@ export const ui = {
             modalChartContainer: document.getElementById('modal-chart-container'),
             
             tabTriggers: document.querySelectorAll('.tab-trigger'),
-            tabPanels: document.querySelectorAll('.tab-panel')
+            tabPanels: document.querySelectorAll('.tab-panel'),
+
+            // New CSV Table Elements
+            csvTableStats: document.getElementById('csv-table-stats'),
+            btnToggleColumns: document.getElementById('btn-toggle-columns'),
+            columnDropdown: document.getElementById('column-dropdown'),
+            columnList: document.getElementById('column-list'),
+
+            // Inspector Modal
+            inspectorModal: document.getElementById('inspector-modal'),
+            closeInspectorBtn: document.getElementById('close-inspector-btn'),
+            inspectorContent: document.getElementById('inspector-content')
         };
     },
 
