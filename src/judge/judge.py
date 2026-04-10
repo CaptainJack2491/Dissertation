@@ -15,6 +15,89 @@ from .helpers import (
 )
 from .judges import BlackboxChecker, GlassboxChecker, RegexChecker
 
+import anthropic
+
+try:
+    import openai
+except ImportError:
+    openai = None
+
+try:
+    from xai_sdk import Client as XAIClient
+except ImportError:
+    XAIClient = None
+
+
+_PROVIDER_CLIENT_FACTORIES: Dict[str, Any] = {}
+
+
+def _register_provider_clients() -> Dict[str, Any]:
+    global _PROVIDER_CLIENT_FACTORIES
+    if _PROVIDER_CLIENT_FACTORIES:
+        return _PROVIDER_CLIENT_FACTORIES
+
+    import os as _os
+
+    if anthropic:
+        _PROVIDER_CLIENT_FACTORIES["anthropic"] = lambda: anthropic.Anthropic(
+            api_key=_os.environ.get("ANTHROPIC_API_KEY")
+        )
+    if openai:
+        _PROVIDER_CLIENT_FACTORIES["openai"] = lambda: openai.OpenAI(
+            api_key=_os.environ.get("OPENAI_API_KEY")
+        )
+    if XAIClient:
+        _PROVIDER_CLIENT_FACTORIES["xai"] = lambda: XAIClient(
+            api_key=_os.environ.get("XAI_API_KEY")
+        )
+
+    return _PROVIDER_CLIENT_FACTORIES
+
+
+def get_supported_providers() -> List[str]:
+    """Return list of supported providers that have their client library installed."""
+    _register_provider_clients()
+    return list(_PROVIDER_CLIENT_FACTORIES.keys())
+
+
+def create_sync_clients_for_models(
+    blackbox_model: Dict,
+    glassbox_model: Dict,
+    existing_clients: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    """Create sync clients for all providers needed by the given model configs.
+
+    Args:
+        blackbox_model: Blackbox judge model config dict
+        glassbox_model: Glassbox judge model config dict
+        existing_clients: Optional existing clients to use instead of creating new ones
+
+    Returns:
+        Dict mapping provider name -> sync client instance
+    """
+    _register_provider_clients()
+
+    providers_needed = set()
+    for config in [blackbox_model, glassbox_model]:
+        if config and config.get("provider"):
+            providers_needed.add(config["provider"])
+
+    clients = dict(existing_clients) if existing_clients else {}
+
+    for provider in providers_needed:
+        if provider not in clients:
+            factory = _PROVIDER_CLIENT_FACTORIES.get(provider)
+            if factory:
+                clients[provider] = factory()
+            else:
+                supported = list(_PROVIDER_CLIENT_FACTORIES.keys())
+                raise ValueError(
+                    f"Provider '{provider}' not supported. "
+                    f"Supported: {supported}. Install the client library first."
+                )
+
+    return clients
+
 
 class Judge:
     """Orchestrates all three checks on experiment log files.
@@ -24,6 +107,9 @@ class Judge:
     - judge_batch(): uses a BatchProvider for multiple logs
 
     Uses a single judge per prong (blackbox, glassbox).
+
+    Auto-creates sync clients for the providers needed by the configured models
+    if not explicitly provided.
     """
 
     def __init__(
@@ -49,7 +135,14 @@ class Judge:
         self.blackbox_model = blackbox_model
         self.glassbox_model = glassbox_model
         self.batch_providers = batch_providers or {}
-        self.sync_clients = sync_clients or {}
+
+        if sync_clients:
+            self.sync_clients = sync_clients
+        else:
+            self.sync_clients = create_sync_clients_for_models(
+                blackbox_model, glassbox_model
+            )
+
         self.regex_checker_cache: Dict[str, RegexChecker] = {}
 
         self.blackbox_checker = BlackboxChecker(

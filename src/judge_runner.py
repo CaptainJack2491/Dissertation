@@ -13,15 +13,11 @@ from typing import Dict, List
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-import anthropic
-
 from judge import (
     Judge,
-    extract_model_output,
-    extract_reasoning_trace,
-    extract_system_prompt,
     AnthropicBatchProvider,
     XAIBatchProvider,
+    OpenAIBatchProvider,
 )
 
 
@@ -37,18 +33,15 @@ def discover_log_files(
     """
     log_files = []
     for root, dirs, files in os.walk(logs_dir):
-        # Skip baseline directories
         if os.path.basename(root) == "baseline":
             continue
         for f in files:
             if f.endswith(".json"):
                 full_path = os.path.join(root, f)
-                # Apply model filter
                 if model_filter:
                     model_safe = model_filter.replace("/", "_")
                     if model_safe not in full_path:
                         continue
-                # Apply scenario filter
                 if scenario_filter:
                     if scenario_filter not in full_path:
                         continue
@@ -143,15 +136,10 @@ def save_judge_log(
     log_dir: str,
     judge_model: str = "unknown",
 ) -> str:
-    """Save full judge log including CoT reasoning alongside the verdict.
-
-    The blackbox and glassbox dicts contain 'raw_response' — the judge's
-    full chain-of-thought reasoning. This is preserved in the log for
-    auditability.
-    """
+    """Save full judge log including CoT reasoning alongside the verdict."""
     run_id = verdict.get("run_id", "unknown")
     safe_run_id = run_id.replace("/", "_").replace(" ", "_")
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.now().strftime("%Y%m_%H%M%S")
 
     log_path = os.path.join(log_dir, f"judge_{safe_run_id}_{timestamp}.json")
     os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
@@ -172,7 +160,6 @@ def save_judge_log(
             "glassbox_sophistication": gb.get("sophistication", ""),
             "glassbox_justification": gb.get("justification", ""),
         },
-        # Full judge reasoning (CoT) — the complete response from the judge LLM
         "blackbox_full_reasoning": bb.get("raw_response", ""),
         "glassbox_full_reasoning": gb.get("raw_response", ""),
     }
@@ -223,8 +210,8 @@ def main():
     parser.add_argument(
         "--mode",
         choices=["batch", "single"],
-        default="batch",
-        help="Processing mode: 'batch' (Anthropic Batch API) or 'single' (synchronous). Default: batch",
+        default="single",
+        help="Processing mode: 'batch' (Batch API) or 'single' (synchronous). Default: single",
     )
     parser.add_argument(
         "--poll-interval",
@@ -247,39 +234,50 @@ def main():
         default=["regex", "blackbox", "glassbox"],
         help="Which judges to run (default: all three). E.g. --judges regex blackbox",
     )
-    parser.add_argument(
-        "--provider",
-        choices=["anthropic", "xai"],
-        default="anthropic",
-        help="Batch provider to use (default: anthropic)",
-    )
     args = parser.parse_args()
 
     judge_config = load_judge_config(args.config)
-    model = judge_config.get("model", "claude-sonnet-4-20250514")
-    temperature = judge_config.get("temperature", 0)
+
+    bb_cfg = judge_config.get("blackbox", {})
+    gb_cfg = judge_config.get("glassbox", {})
+
+    blackbox_model = {
+        "id": bb_cfg.get("model", "claude-sonnet-4-20250514"),
+        "provider": bb_cfg.get("provider", "anthropic"),
+        "temperature": bb_cfg.get("temperature", 0),
+    }
+
+    glassbox_model = {
+        "id": gb_cfg.get("model", "gpt-4.1"),
+        "provider": gb_cfg.get("provider", "openai"),
+        "temperature": gb_cfg.get("temperature", 0),
+    }
+
     judge_log_dir = judge_config.get("log_dir", "judge_logs")
 
-    batch_provider = None
-    sync_client = None
-
+    batch_providers = {}
     if args.mode == "batch":
-        if args.provider == "anthropic":
-            batch_provider = AnthropicBatchProvider()
-            sync_client = anthropic.Anthropic()
-        elif args.provider == "xai":
-            batch_provider = XAIBatchProvider()
-    else:
-        sync_client = anthropic.Anthropic()
+        if blackbox_model["provider"] == "anthropic":
+            batch_providers["anthropic"] = AnthropicBatchProvider()
+        elif blackbox_model["provider"] == "xai":
+            batch_providers["xai"] = XAIBatchProvider()
+        elif blackbox_model["provider"] == "openai":
+            batch_providers["openai"] = OpenAIBatchProvider()
+
+        if glassbox_model["provider"] != blackbox_model["provider"]:
+            if glassbox_model["provider"] == "anthropic":
+                batch_providers["anthropic"] = AnthropicBatchProvider()
+            elif glassbox_model["provider"] == "xai":
+                batch_providers["xai"] = XAIBatchProvider()
+            elif glassbox_model["provider"] == "openai":
+                batch_providers["openai"] = OpenAIBatchProvider()
 
     judge = Judge(
-        model=model,
-        temperature=temperature,
-        batch_provider=batch_provider,
-        sync_client=sync_client,
+        blackbox_model=blackbox_model,
+        glassbox_model=glassbox_model,
+        batch_providers=batch_providers,
     )
 
-    # Determine which log files to process
     if args.log_file:
         log_files = [args.log_file]
     else:
@@ -298,14 +296,14 @@ def main():
     print(f"Judging {len(log_files)} experiment log(s)")
     print(f"  Judges: {', '.join(sorted(enabled_judges))}")
     if run_llm:
-        print(f"  Judge model: {model}")
+        print(f"  Blackbox: {blackbox_model['id']} ({blackbox_model['provider']})")
+        print(f"  Glassbox: {glassbox_model['id']} ({glassbox_model['provider']})")
         print(f"  Mode: {args.mode}")
     print(f"  Output: {args.output}")
     print(f"  Judge logs: {judge_log_dir}")
     print(f"{'=' * 60}\n")
 
     if not run_llm or args.mode == "single":
-        # Regex-only mode or synchronous mode — judge one at a time
         verdicts = []
         for i, log_path in enumerate(log_files, 1):
             print(f"[{i}/{len(log_files)}] Judging: {log_path}")
@@ -318,8 +316,11 @@ def main():
                 )
                 verdicts.append(verdict)
 
-                # Save judge log
-                jlog = save_judge_log(verdict, judge_log_dir, judge_model=model)
+                jlog = save_judge_log(
+                    verdict,
+                    judge_log_dir,
+                    judge_model=f"bb:{blackbox_model['id']}|gb:{glassbox_model['id']}",
+                )
                 parts = []
                 if "regex" in enabled_judges:
                     parts.append(f"regex={verdict['regex']}")
@@ -336,38 +337,43 @@ def main():
 
                 traceback.print_exc()
 
-        # Write CSV
         write_csv(args.output, verdicts)
         print(f"\nResults saved to {args.output}")
 
     else:
-        # Batch mode — use Anthropic Batch API
         checks_per_log = len({"blackbox", "glassbox"} & enabled_judges)
         print("Preparing batch requests...")
-        batch_requests, metadata_map = judge.prepare_batch_requests(
+        batch_requests_by_provider, metadata_map = judge.prepare_batch_requests(
             log_paths=log_files,
             logs_dir=args.logs_dir,
             scenarios_dir=args.scenarios_dir,
             enabled_judges=enabled_judges,
         )
 
+        total_requests = sum(len(reqs) for reqs in batch_requests_by_provider.values())
         print(
-            f"  {len(batch_requests)} API requests ({len(log_files)} logs × {checks_per_log} checks)"
+            f"  {total_requests} API requests ({len(log_files)} logs × {checks_per_log} checks)"
         )
+        for provider, reqs in batch_requests_by_provider.items():
+            print(f"    {provider}: {len(reqs)} requests")
 
-        print("Submitting batch...")
-        batch_id = judge.submit_batch(batch_requests)
-        print(f"  Batch ID: {batch_id}")
+        print("Submitting batches...")
+        batch_ids = judge.submit_all_batches(batch_requests_by_provider)
+        for provider, batch_id in batch_ids.items():
+            print(f"  {provider} batch ID: {batch_id}")
 
         print(f"Polling for completion (every {args.poll_interval}s)...")
-        judge.poll_batch(batch_id, poll_interval=args.poll_interval)
+        judge.poll_all_batches(batch_ids, poll_interval=args.poll_interval)
 
         print("Collecting results...")
-        verdicts = judge.collect_batch_results(batch_id, metadata_map)
+        verdicts = judge.collect_batch_results(batch_ids, metadata_map)
 
-        # Save individual judge logs
         for verdict in verdicts:
-            jlog = save_judge_log(verdict, judge_log_dir, judge_model=model)
+            jlog = save_judge_log(
+                verdict,
+                judge_log_dir,
+                judge_model=f"bb:{blackbox_model['id']}|gb:{glassbox_model['id']}",
+            )
             bb = verdict.get("blackbox", {})
             gb = verdict.get("glassbox", {})
             parts = [f"{verdict['run_id']}:"]
@@ -381,7 +387,6 @@ def main():
                 )
             print(f"  {' '.join(parts)}")
 
-        # Write CSV
         write_csv(args.output, verdicts)
         print(f"\nResults saved to {args.output}")
 

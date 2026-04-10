@@ -38,9 +38,10 @@ Documentation of the experiment evolution from v1 (420 runs) through to the fina
 
 ### Current Status
 - Framework implemented and committed
-- Judge system being refined (single judge per prong)
+- Judge system: single judge per prong implemented (commit 9155f66)
+- 20% validation subset protocol: pending implementation
+- Judge validation pilot: pending
 - v2 experiment NOT yet run
-- Judge validation pilot pending
 
 ## Key Insight from v1
 

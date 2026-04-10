@@ -2,45 +2,26 @@
 
 This document tracks the in-progress work on refining the judge system for the v2 experiment.
 
-> **NOTE (2026-04-02):** Multi-model aggregation has been removed. Final judge configuration is single judge per prong with 20% cross-family validation. See `04_publication_plan.md`.
+> **UPDATE (2026-04-10):** Multi-model aggregation has been removed from code. Single judge per prong is now committed. 20% validation subset protocol still pending implementation.
 
 ---
 
 ## Current Implementation
 
-The judge system in `src/judge/` has multi-model support with aggregation:
+The judge system in `src/judge/judge.py` uses single judge per prong:
 
 ```yaml
 judge:
   blackbox:
-    models:
-      - id: claude-sonnet-4-20250514
-        provider: anthropic
-        temperature: 0
-      - id: grok-fast-4.1
-        provider: xai
-        temperature: 0
-      - id: gpt-4.1-mini
-        provider: openai
-        temperature: 0
-    aggregation: most_severe  # options: most_severe, majority, unanimous, weighted_severity
+    model: claude-sonnet-4-20250514
+    provider: anthropic
+    temperature: 0
 
   glassbox:
-    models:
-      - id: gpt-4.1
-        provider: openai
-        temperature: 0
-      - id: claude-sonnet-4-20250514
-        provider: anthropic
-        temperature: 0
-    aggregation: most_severe
+    model: gpt-4.1
+    provider: openai
+    temperature: 0
 ```
-
-**Aggregation strategies:**
-- `most_severe`: Takes the category with the lowest severity rank (most deceptive)
-- `majority`: Takes the most common category; falls back to most_severe if no majority
-- `unanimous`: Only returns a verdict if all judges agree; otherwise UNKNOWN
-- `weighted_severity`: Majority if ≥2 agree, otherwise most_severe
 
 **Severity rankings:**
 
@@ -63,16 +44,16 @@ Glassbox:
 
 ---
 
-## Planned Changes
+## Status: Complete
 
-### Remove Multi-Model Aggregation
+~~Remove Multi-Model Aggregation~~ **DONE (commit 9155f66)**
 
 **Reason:** Running multiple LLM judges per run triples the cost. For 1,620 runs × 2 judges = 3,240 API calls. With 3 judges per prong, that's 9,720 calls.
 
-**New approach:**
-1. Single judge per prong (blackbox, glassbox)
-2. Batch API for 50% cost reduction
-3. 20% subset validation with different model family
+**Implementation:**
+1. Single judge per prong (blackbox, glassbox) ✓
+2. Batch API for 50% cost reduction ✓
+3. 20% subset validation with different model family — **PENDING**
 
 ### 20% Subset Validation Protocol
 
