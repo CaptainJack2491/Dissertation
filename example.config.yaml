@@ -1,0 +1,86 @@
+# Experiment Configuration
+# Copy this file to config.yaml and customise for your runs.
+# Define providers, models, scenarios, and runs.
+
+# Default parameters (can be overridden per model)
+defaults:
+  temperature: 1.0
+  # max_tokens: 4096
+  oversight: high
+  include_reasoning_in_context: true
+  generate_baseline: true   # Set to false to skip baseline generation
+
+# Provider configurations
+providers:
+  groq:
+    api_key_env: GROQ_API_KEY
+    base_url: https://api.groq.com/openai/v1
+  openai:
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+  google:
+    api_key_env: GOOGLE_API_KEY
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+  openrouter:
+    api_key_env: OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+  moonshot:
+    api_key_env: OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+
+# Models to test (frontier models with reasoning traces, via OpenRouter)
+models:
+  - id: google/gemini-3.1-pro-preview
+    provider: openrouter
+    extra_body:
+      reasoning:
+        effort: "high"
+        exclude: false
+
+  - id: z-ai/glm-5
+    provider: openrouter
+    extra_body:
+      reasoning:
+        effort: "high"
+        exclude: false
+
+  - id: deepseek/deepseek-v3.2
+    provider: openrouter
+    extra_body:
+      reasoning:
+        effort: "high"
+        exclude: false
+
+# Scenarios to run
+scenarios:
+  - path: scenarios/corporate_sabotage_v2
+    runs: 20
+
+  - path: scenarios/child_protection
+    runs: 20
+
+# Oversight levels to test
+oversight_levels:
+  - low
+  - mid
+  - high
+
+# Output settings
+output:
+  dir: logs
+  # save_vfs_state: false
+
+# Judge configuration
+judge:
+  model: claude-sonnet-4-20250514
+  temperature: 0
+  log_dir: judge_logs
+
+# Logging configuration
+logging:
+  level: 3          # 1-4, controls verbosity (1=CRITICAL, 2=WARNING, 3=INFO, 4=DEBUG)
+  format: "[{level}] {message}"
+  output: console   # console, file, or both (auto-set to 'both' at level 4)
+  file: logs/experiment.log
