@@ -32,7 +32,9 @@ export const ui = {
             // Inspector Modal
             inspectorModal: document.getElementById('inspector-modal'),
             closeInspectorBtn: document.getElementById('close-inspector-btn'),
-            inspectorContent: document.getElementById('inspector-content')
+            inspectorContent: document.getElementById('inspector-content'),
+            inspectorTitle: document.getElementById('inspector-title'),
+            inspectorToggleBtns: document.querySelectorAll('.toggle-btn')
         };
     },
 
