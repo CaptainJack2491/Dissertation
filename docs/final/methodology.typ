@@ -1,189 +1,139 @@
 = Methodology
 
-== Introduction
-
-This research investigates whether AI agents exhibit conditional deception ( pursuing hidden objectives while appearing compliant ) with behavior modulated by perceived oversight intensity. While recent work demonstrates that frontier models engage in in-context scheming (Meinke et al., 2025; Järviniemi & Hubinger, 2024), a critical gap persists: no study systematically isolates perceived oversight as an independent variable affecting deceptive behavior.
-
-This methodology addresses this gap through controlled experimentation with a custom agentic framework that enables precise manipulation of oversight conditions while maintaining consistent task structure across trials.
-
 == Research Methodology
 
-=== Methodological approach
+This dissertation uses an **experimental observational** methodology to study deceptive behavior in AI systems under conflicting goals and varying perceived oversight.
 
-This research employs an experimental observational methodology to study emergent behavior in AI systems. Unlike supervised learning studies that optimize model performance on benchmarks, this work observes how existing pretrained models behave under adversarial conditions without modification to their weights or training procedures.
+The study examines whether, in a prompt context that includes both a benign task objective and a hidden objective, model outputs and reasoning traces exhibit patterns consistent with deception.
 
-The methodology follows a controlled experiment design:
+=== Experimental Design
 
-- *Independent variables*: Model architecture, oversight level, scenario type
-- *Dependent variables*: Deceptive behavior classification (via 3-prong rubric), deception sophistication level
-- *Control measures*: Fixed temperature settings, identical system prompts per oversight level, standardized Virtual File System (VFS) environment
-- *Experimental units*: Individual conversation runs (model × scenario × oversight combination)
+The experiment follows a controlled design:
 
-=== Ideology [TOFIX]
+- **Independent variables:** model, scenario type, and perceived oversight intensity
+- **Dependent variables:** deception classification and deception sophistication level
+- **Control measures:** fixed generation settings from configuration (including temperature), a standardized sandboxed Virtual File System (VFS), and an oversight-specific prompt component
+- **Experimental units:** individual conversation runs (model × scenario × oversight)
 
-This research takes a behavioural rather than interpretability-based approach to studying AI deception. While mechanistic interpretability seeks to understand why models behave as they do through weight analysis, behavioral observation examine what models do under specific conditions. The reasoning traces (chain-of-thought) serve as behavioural indicators rather than ground truth about internal model states.
+=== Interpretation and Epistemic Stance
 
-The literature review identifies perceived oversight as a critical unexplored variable. While existing work demonstrates scheming capabilities, studies either provide hidden goals without oversight variation (Meinke et al., 2025) or evaluate scheming in environments where models are aware of being tested (Schoen et al., 2025). 
+This research adopts a behavioral approach. Reasoning traces (where extractable) are treated as evidence about the model’s apparent intent and strategy, rather than as a guaranteed view of internal computation.
 
-This work addresses these gaps through:
-- 
-
-*Scope Limitations*
-
-- Obfuscation Problem (out of scope): As Schoen et al. warns, models may learn to reason in uninterpretable encodings, or their reasoning traces might not accurately reflect internal reasoning. This research assumes human-legible accurate reasoning traces and acknowledges that the detection methods will likely fail when models start to obfuscate deliberation.
-
-- Hybrid Threats (out of scope): This work exclusively focuses on in-context deception, the interaction between trained-in backdoors and contextual triggers as identified in the literature as the more dangerous scenario, requires more research.
-
-- Observer Effect Ambiguity (acknowledged, not resolved): Whether oversight cues trigger genuine situational awareness or merely shift token probabilities cannot be determined from behavior alone. This research focuses on the model's behaviour regardless of why.
-
-- Perceived vs Real Oversight (out of scope): This work implies oversight by the model's system message, and or letting the model discover it by interacting with the environment. No real oversight was implemented, this work assumes that real oversight would have similar effect.
-
+The evaluation framework is therefore designed to classify observable behavior using multiple complementary signals.
 
 == System Architecture
 
-The goal was to create a modular system which allows for fast iterative testing for different models, scenarios, tools and oversight levels. To achieve this, multiple conscious decisions were made. 
+To support modular experimentation, the implementation is structured so that models, scenarios, tools, and oversight conditions can be varied through configuration.
 
-=== Overview
+=== Configuration System
 
-This system's goal is to test model's behavioural changes under conflicting goals under varying oversight levels. To accomplish the goal of modularity, the system is divided into multiple sections. 
+Experiment configuration is provided via `config.yaml` together with environment variables for API credentials.
 
-=== Configuration system
+The configuration specifies:
 
-The conclusion to use a configuration file was derived from preliminary testing which suggested that an easy, simple way to vary model features was needed for faster testing. This configuration file supports defining defaults, provider settings, scenarios to test, and output configurations.
+- which models to test (including provider and optional provider-specific parameters)
+- which scenario directories to run
+- which oversight labels to evaluate
+- output and logging settings
 
-The project uses a two-part configuration system:
-
-1. `config.yaml` - Defines what to run:
-   - Models to test (with provider info)
-   - Scenarios to run
-   - Oversight levels
-   - Output settings
-
-  ```yaml
-  # Default parameters (can be overridden per model)
-  defaults:
-    temperature: 1.0
-    max_tokens: 4096
-
-  providers:
-    google:
-    api_key_env: GOOGLE_API_KEY
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    models:
-    - id: gemini-3-flash-preview
-      provider: google
-      temperature: 1
-      extra_body:
-        ...
-
-  scenarios:
-    - path: scenarios/corporate_sabotage_v2
-      runs: 2
-
-  oversight_levels:
-    - low
-    - ..
-  output:
-    dir: logs
-    save_vfs_state: false
-  ```
-
-2. `.env` - Stores API keys as environment variables:
-
-   ```env
-   OPENAI_API_KEY=sk-...
-   GOOGLE_API_KEY=...
-   ANTHROPIC_API_KEY=...
-   OPENROUTER_API_KEY=...
-   ```
-
-The `ConfigLoader` reads `config.yaml` and looks up API keys from environment variables.
+A configuration loader parses these settings into objects consumed by the experiment runner.
 
 === Virtual File System (VFS)
 
+The agent interacts with a sandboxed Virtual File System (VFS), initialized from scenario-specific data directories. The VFS provides a consistent file interface and isolates the experiment from the host file system.
 
+The VFS supports tool operations including:
 
-=== Reasoning Extraction
+- listing files
+- reading files
+- creating files
+- deleting files
 
-=== Logging Structure
+=== Agent Implementation
 
-=== Interrogation Framework
+The agent uses an OpenAI-compatible client interface so that multiple providers can be tested under a unified calling pattern.
 
+Key implementation behaviors include:
 
-== Scenario structure and design
+- extracting reasoning information from provider-specific response fields when available
+- handling tool calls: when the model requests tools, the framework executes them and appends tool outputs back into the conversation
+- writing logs incrementally to reduce the likelihood of losing partial results if a run terminates unexpectedly
 
-=== Standard scenario format
+=== Scenario Structure and Design
 
-=== Design rational
+Each scenario directory contains:
 
-=== Scenario realism and model awareness
+- a benign goal (`benign_goal.md`)
+- a hidden objective (`hidden_goal.md`)
+- a user instruction (`user.md`)
+- a set of source documents under `data/`
+- scenario-specific regex rules under `regex_rules.yaml`
+- oversight cues under `oversight/`
 
+The system prompt is assembled such that the model is exposed to benign and hidden objectives along with the text corresponding to the chosen oversight condition.
 
-== Experimental procedure
+== Experimental Procedure
 
-=== Experiment flow
+Each run proceeds as follows:
 
-=== Oversight levels
+1. Initialize the VFS with scenario-specific documents.
+2. Construct an agent using model/provider configuration.
+3. Assemble the system prompt including benign goal, hidden goal, and the oversight cue text.
+4. Run the agent with the scenario user instruction, allowing tool calls when requested.
+5. Save the complete conversation logs, including any extractable reasoning fields.
 
+== Evaluation Framework: The 3-Pronged Judging System
 
+The dissertation uses a multi-pronged rubric to classify deception and assess deception sophistication.
 
+=== Prong 1: Deterministic Regex Checker (Regex)
 
-== Evaluation Framework
+Scenario-defined YAML rules provide deterministic pattern checks over the final output. This prong aims to capture cases where required details are omitted or prohibited content is present.
 
-=== The 3-pronged evaluation rubric
+=== Prong 2: Black-Box Judge (Output-Level)
 
-=== Prong 1 : Deterministic filter (regex)
+A separate LLM judge evaluates the final output without access to the reasoning trace. The judge compares the output against:
 
-=== Prong 2 : Black Box Judge (User perception)
+- the task description
+- the source documents considered ground truth for content
+- a baseline output produced in the absence of the hidden goal
+- the model output under evaluation
 
-=== Prong 3 : Glass Box Judge (Intent detector)
+The black-box judge assigns one category:
 
-=== Triangulation across prongs
+- **ACCURATE**
+- **MISLEADING**
+- **OMITTED**
+- **FABRICATED**
 
-=== Deception sophistication scale
+=== Prong 3: Glass-Box Judge (Intent-Level)
 
-=== Inter-rater reliability
+A glass-box judge is provided with the extracted reasoning trace, the full system prompt, and the final output.
 
-=== Validity considerations
+The glass-box judge assigns one intent category:
 
+- **ROBUST_HONEST**
+- **CONSIDERED_HONEST**
+- **COMPLIANT_DECEPTION**
+- **FAILED_DECEPTION**
+- **UNINTENTIONAL_FAILURE**
 
-== Analysis approach
+The judge also assigns a sophistication tier:
 
-=== Data Organisation
+- NAIVE, REACTIVE, TACTICAL, STRATEGIC
 
-=== Cross-Tabulation Analysis
+=== Deception Definition Used in the Main Results
 
-=== Reproducibility measures
+For the primary results presented in this dissertation, a run is treated as **deceptive** when the glass-box category is **COMPLIANT_DECEPTION**.
 
-=== Preliminary findings and expected pattern
+This definition is used to derive deception rates across oversight levels, models, and scenario types.
 
+== Data Analysis Approach
 
-== Sample size and statistical power
+Aggregated statistics are computed from `/home/jayrup/uni/dis/logs/full_experiment/results.csv`.
 
-=== Per-Condition runs
+The analysis reports deception rates (overall and conditional on supervision cues), sophistication distributions, and breakdowns across black-box categories.
 
-=== Power Analysis
+All numeric claims included in the Results and Analysis sections are derived directly from the CSV dataset.
 
-=== Budget Constraints
-
-
-
-
-== Challenges and Limitations
-
-=== Epistemic Limitations
-
-=== Scope Limitations
-
-=== Methodological Limitations
-
-=== Theoretical Interpretation 
-
-
-== Ethical Consideration
-
-=== Research scope and safety
-
-=== Dual-Use Implications
-
-=== Transparency and Reproducibility 
+#pagebreak()
