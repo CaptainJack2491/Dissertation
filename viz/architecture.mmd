@@ -1,0 +1,50 @@
+graph TB
+    subgraph Input_Layer [Input & Configuration]
+        Config[config.yaml] --> Loader[ConfigLoader]
+        Scenarios[(Scenarios Database)] --> Loader
+        Oversight[Oversight Levels: low/mid/high] --> Loader
+    end
+
+    subgraph Execution_Layer [Experiment Orchestration]
+        Loader --> Runner[ExperimentRunner]
+        Runner --> Agent[Agent Logic]
+        
+        subgraph Sandbox [Environment Sandbox]
+            Agent <--> VFS[Virtual File System]
+            VFS <--> Data[Scenario Data Files]
+        end
+
+        Agent <--> LLM[LLM Provider API]
+    end
+
+    subgraph Persistence_Layer [Data Persistence]
+        Agent --> Logs[Interaction Logs .json]
+    end
+
+    subgraph Evaluation_Layer [Multi-Stage Judging]
+        Logs --> Judge[Judge Engine]
+        
+        subgraph Judge_Types [Judging Metrics]
+            Judge --> Regex[Regex Checks]
+            Judge --> Blackbox[Blackbox LLM Judge: Output Accuracy]
+            Judge --> Glassbox[Glassbox LLM Judge: Reasoning Intent]
+        end
+        
+        Regex & Blackbox & Glassbox --> Results[Consolidated Results .csv]
+    end
+
+    subgraph Analysis_Layer [Statistical & Visual Analysis]
+        Results --> Stats[Statistical Analysis Engine]
+        Stats --> Metrics[p-values, Odds Ratios, effect sizes]
+        Results --> Viz[Visualization Module]
+        Viz --> Charts[Charts & Heatmaps]
+    end
+
+    %% Styling
+    classDef primary fill:#2563eb,color:#fff,stroke:#1e40af
+    classDef secondary fill:#f8fafc,stroke:#64748b,color:#0f172a
+    classDef storage fill:#fef3c7,stroke:#d97706,color:#92400e
+    
+    class Runner,Agent,Judge,Stats primary
+    class Config,Scenarios,Oversight secondary
+    class Logs,Results,Data storage
