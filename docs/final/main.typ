@@ -1,65 +1,52 @@
-// 1. Define or import the title page function
-#let title-page(title:[], subtitle:[], name:[], studentid:[], body) = {
-  // Use `auto` for page dimensions unless you need fixed sizes
-  // set page(width: auto, height: auto, margin: (top: 1.5in, rest: 1in)) // Adjusted margins
-  set text(size: 12pt) // Set base size for body, adjust locally
-  // Define title page specific layout
-  align(horizon + left)[
-    #line(length: 100%, stroke: 2pt)
-    #v(1em)
-    #text(size: 24pt, weight: "bold", title)
-    #v(1em)
-    #text(size: 18pt, subtitle)
-    #v(3em) // More space before name
-    #text(size: 14pt, name)
-    #v(0.5em)
-    #text(size: 14pt, studentid)
-    #v(1fr) // Push content down if needed
+#import "template.typ": *
+
+#show: project.with(
+  title: "Strategic Deception Under Varying Oversight Levels in Autonomous AI Agents",
+  author: "Jayrup Nakawala",
+  student_id: "2613621",
+  degree: "Data Science and Artificial Intelligence",
+  supervisor: "Dr. Aloysius Adotey Edoh",
+  date: datetime(year: 2025, month: 10, day: 13),
+
+  abstract: [
+    Large Language Models are increasingly being used in high-stakes agentic environments. How these models behave in agentic environments under varying oversight, and whether they can deter deceptive compliance, is an important question. In this paper, we study how LLMs behave when given conflicting directives to act in high-stakes environments.
+
+    We introduce a multi-layered evaluation framework capable of isolating LLM behavior under conflicting directives, capturing both reasoning traces (where accessible) and final outputs across varying oversight conditions. The LLMs are given access to a VFS (Virtual File System) along with tools, to simulate a realistic scenario. The judging framework works on three complimentary evaluation methods: *regex checks* (simplest and deterministic), *blackbox* (based on the final output/action), and *glassbox* (based on model's reasoning/intent).
+
+    Across 420 experimental runs involving seven LLMs of varying size and architecture, we observe substantially higher rates (87% vs 50%) of deceptive behavior when actions are framed with a moral or rationalized directive compared to when they are framed as self-serving. Furthermore, we find evidence of a concerning pattern we call the _Oversight Paradox_: while strict monitoring significantly reduces self-serving deception, it has no statistical effect on rationalized deception. Given the limited scope of our study, these results should be interpreted as exploratory rather than conclusive.
+  ],
+
+  acknowledgments: [
+    // TODO: Write acknowledgements
   ]
-  pagebreak() // Ensures body starts on a new page
-  // Reset text size for the main body content
-  set text(size: 12pt)
-  // Apply heading numbering for the rest of the document here or after preface
-  set heading(numbering: "1.1")
-  body // This is where the included content will go
-}
-
-// 2. Apply the show rule using the function
-#show: body => title-page(
-  title: [Testing In-Context Sleeper Agents: Challenges in Detecting Hidden Goal Pursuit], // Your updated title
-  subtitle: [Dissertation (CN6000)],
-  name: "Jayrup Nakawala",
-  studentid: "u2613621",
-  body // Pass the actual document body through
 )
 
-// --- Document Content Starts Here ---
+// --- MAIN BODY ---
 
-// 3. Include preface content (Abstract, Acknowledgements, ToC)
-#include "preface.typ"
+#include "intro.typ"
 
-// 4. Include main chapters
-#include "intro.typ" // Introduction
-#include "lit.typ" // Literature Review
-#include "methodology.typ" // Methodology
-#include "results.typ" // Results
-#include "analysis.typ" // Analysis
-#include "conclusion.typ" // Conclusion
+#include "lit.typ"
 
-// 5. Include Bibliography (if in separate file or define here)
-#let b = bibliography(
-  "references.bib",
-  style: "harvard-cite-them-right",
-  title: "References"
-)
+#include "methodology.typ"
 
-// Title page
-// Contents
-// = C1: Introduction
-// = C2: Literature Review
-// = C3: Methodology
-// = C4: Results
-// = C5: Analysis
-// = C6: Conclusion
-// References
-// Appendices
+#include "results.typ"
+
+#include "analysis.typ"
+
+#include "conclusion.typ"
+
+// --- REFERENCES ---
+#bibliography("references.bib", style: "harvard-cite-them-right")
+
+// --- APPENDICES ---
+#show: appendix
+
+= Scenario Prompts and Data
+// TODO: Include benign_goal, hidden_goal, oversight prompts
+
+= Judging Prompts
+// TODO: Include blackbox and glassbox judge prompts
+
+= Initial Project Proposal
+
+= Ethics Approval

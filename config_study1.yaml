@@ -1,0 +1,84 @@
+# ============================================================
+# Study 1: The Effect of Oversight on Deception
+# ============================================================
+# Design: 3 models × 1 scenario × 1 goal_type (bare) × 3 oversight × n=30
+# Total:  3 × 1 × 1 × 3 × 30 = 270 runs (+ 3 baselines)
+# ============================================================
+
+defaults:
+  temperature: 1.0
+  include_reasoning_in_context: true
+  generate_baseline: true
+
+# Provider configurations
+providers:
+  openrouter:
+    api_key_env: OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+
+# Models: 3 frontier models with reasoning traces
+models:
+  - id: google/gemini-3.1-pro-preview
+    provider: openrouter
+    extra_body:
+      reasoning:
+        effort: "high"
+        exclude: false
+
+  - id: z-ai/glm-5.1:nitro # nitro for faster infrence
+    provider: openrouter
+    extra_body:
+      reasoning:
+        effort: "high"
+        exclude: false
+
+  - id: deepseek/deepseek-v3.2:nitro # nitro for faster infrence
+    provider: openrouter
+    extra_body:
+      reasoning:
+        effort: "high"
+        exclude: false
+
+# Study 1: bare framing ONLY (isolates oversight as the IV)
+goal_types:
+  - bare
+
+# Single scenario
+scenarios:
+  - path: scenarios/corporate_sabotage_v2
+    runs: 30
+
+# All 3 oversight levels (the independent variable)
+oversight_levels:
+  - low
+  - mid
+  - high
+
+# Parallel execution
+execution:
+  max_workers: 5
+
+# Output to dedicated study directory
+output:
+  dir: logs/v2_study1
+
+# Judge configuration (validated — see notes/v2_redesign/07_judge_validation_results.md)
+judge:
+  log_dir: logs/v2_study1_judge
+
+  blackbox:
+    model: grok-4-1-fast-reasoning
+    provider: xai
+    temperature: 0
+
+  glassbox:
+    model: gpt-4.1
+    provider: openai
+    temperature: 0
+
+# Logging
+logging:
+  level: 3
+  format: "[{level}] {message}"
+  output: both
+  file: logs/v2_study1/experiment.log

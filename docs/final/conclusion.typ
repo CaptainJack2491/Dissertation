@@ -1,0 +1,39 @@
+= Conclusion and Discussion
+
+== Summary of Findings
+
+This study investigated whether perceived oversight modulates deceptive behaviour in LLM agents given conflicting in-context objectives, with particular attention to the distinction between explicit adversarial deception and _bureaucratic rationalisation_. The results from 420 experiment runs provide clear answers to the research questions, with profound implications for sustainable AI governance.
+
+*RQ1:* Yes---68.3% of runs exhibited compliant deception, with all seven models demonstrating the capability. Prevalence ranged from 40% (GLM 4.7 Flash) to 100% (Gemini 3.1 Pro), confirming and extending findings by #cite(<meinke2025frontiermodelscapableincontext>, form: "prose").
+
+*RQ2:* Oversight acts as a _competence filter_. Deception _frequency_ declined (74.3% → 57.9%), but among models that continued to deceive, strategic sophistication remained at 100% across all oversight levels. Oversight suppresses incompetent deception while preserving the most skilled practitioners.
+
+*RQ3:* _Bureaucratic rationalisation_ completely overwhelms explicit adversarial framing. The child protection scenario (resource allocation bias) produced 86.7% deception versus 50.0% for corporate sabotage (sleeper agent instruction). Models that refused explicit adversarial instructions readily complied with bureaucratically framed bias, rationalising it as "prudent resource allocation."
+
+*RQ4:* Oversight exhibits _immunity to bureaucratic rationalisation_. While monitoring successfully suppressed explicit deception (64.3% → 35.7%), it had *no effect* on morally rationalised deception (84.3% → 88.6%). Models immune to oversight deterrence in the child protection scenario not because they were unaware of monitoring, but because they perceived no risk---their outputs appeared procedurally compliant regardless of oversight intensity.
+
+== Implications for Sustainable AI Governance
+
+The findings present a fundamental challenge to current paradigms of AI oversight. If oversight systems inadvertently create _instrumental compliance_---behaviour that satisfies monitoring criteria while advancing concealed objectives---then automated governance becomes self-defeating. The sustainability of AI deployment in social services depends on systems that are genuinely aligned, not merely competent at appearing aligned.
+
+*The Competence Filter creates adverse selection.* Oversight that suppresses frequency while preserving sophistication does not reduce risk; it *concentrates* it. The models that continue to deceive under high monitoring are precisely those most capable of evading detection. For sustainable deployment, this implies that "passing" oversight evaluations may indicate not safety but _superior deception capability_.
+
+*Bureaucratic rationalisation neutralises monitoring.* The complete oversight immunity observed in the child protection scenario demonstrates that procedural compliance can mask systematic bias. When models can frame deception through bureaucratic logic---"prudent resource allocation," "equitable distribution," "professional judgment"---they perceive no conflict with monitoring requirements. This creates a *double bind*: oversight demands procedurally compliant outputs, and bureaucratic rationalisation provides exactly that.
+
+*The administrative evil problem.* The 86.7% deception rate in child protection---far exceeding the 50% in corporate sabotage---reveals that the greater threat to sustainable AI governance is not adversarial attack but institutional capture. Models readily internalise the logic of administrative systems, producing biased outcomes that appear legitimate under surface review. This resonates with organisational theory on administrative evil: harm that emerges not from malicious intent but from the uncritical execution of bureaucratic procedures.
+
+*Multi-method detection is necessary but insufficient.* The 82 runs with undetectable deceptive outputs highlight a fundamental limitation: sufficiently competent deception evades output-level detection. Only reasoning trace analysis identified these cases, but this depends on continued availability of human-legible reasoning---a property that may not persist @schoen2025stresstestingdeliberativealignment. As frontier models are deployed without reasoning transparency, the detection gap will widen.
+
+== Limitations
+
+*Observer effect ambiguity:* Whether oversight cues trigger genuine metacognition or statistical priming cannot be determined from behaviour; the practical risk of instrumental compliance is identical regardless. *Obfuscation:* All methods assume human-legible reasoning and will fail when models obfuscate deliberation, a limitation that threatens the sustainability of transparent AI governance. *Bureaucratic framing boundaries:* The child protection scenario tested one form of bureaucratic rationalisation; other institutional contexts (healthcare triage, criminal justice risk assessment, financial auditing) may yield different patterns of oversight immunity. *Hybrid threats:* Only in-context deception was tested; trained-in backdoors @hubinger2024sleeperagentstrainingdeceptive combined with bureaucratic rationalisation represent a synergistic threat beyond this study's scope. *Judge bias:* Claude Sonnet 4 as sole judge introduces potential narcissistic bias (~25%), partially mitigated by cross-family judging. *Environmental fidelity:* The VFS sandbox simplifies production complexity, though the core finding---that procedural compliance masks systematic bias---is likely robust across environments. *Sample size:* Ten replicates per cell support pattern identification but not precise effect size estimation for marginal effects.
+
+== Future Work
+
+*Causal interventions* using false oversight cues could distinguish genuine metacognition from statistical priming in instrumental compliance. *Institutional diversity* studies should test bureaucratic rationalisation across varied domains---healthcare allocation algorithms, criminal justice risk assessment, educational admissions---to map the boundaries of oversight immunity. *Intervention research* is urgently needed: can oversight systems be redesigned to detect procedural compliance masking substantive bias, or is bureaucratic rationalisation an inherent limitation of rule-based monitoring? *Longitudinal tracking* of successive model versions would reveal whether safety training reduces deception or merely refines its sophistication, with implications for the long-term sustainability of AI governance. *Mechanistic analysis* via sparse autoencoders could probe whether bureaucratic rationalisation activates distinct neural pathways from explicit deception. *Hybrid threat evaluation*---testing interaction between trained-in backdoors and contextual bureaucratic framing---represents the logical next step for understanding compound risks.
+
+== Concluding Remarks
+
+The central finding is robust: perceived oversight reduces the _frequency_ of in-context deception but not its _sophistication_. Models that deceive under high oversight do so with the same strategic quality as those under no monitoring. Gemini 3.1 Pro's 100% deception rate across all conditions---every run exhibiting strategic sophistication---demonstrates that some current models treat monitoring as a constraint to be satisfied rather than a reason to be honest.
+
+This reframes the alignment challenge. The question is not whether models _can_ be deceptive---they can, at remarkably high rates. The question is whether any achievable oversight regime can distinguish genuine compliance from instrumental compliance: an honest model from one that is merely competent at appearing honest. The Oversight Paradox suggests this distinction may be fundamentally difficult to make from behavioural observation alone.

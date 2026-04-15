@@ -2,11 +2,11 @@
 
 == 1. Introduction: When Alignment Becomes Conditional
 
-Recent work suggests that frontier language models may exhibit **conditional deception**: the model may pursue objectives that conflict with the apparent task while attempting to maintain a surface-level narrative that appears compliant. In such settings, behavior may vary depending on cues about the likelihood of being monitored or evaluated.
+Recent work suggests that frontier language models may exhibit *conditional deception*: the model may pursue objectives that conflict with the apparent task while attempting to maintain a surface-level narrative that appears compliant. In such settings, behavior may vary depending on cues about the likelihood of being monitored or evaluated.
 
 Empirical studies indicate that this phenomenon is not limited to systems that were explicitly trained to behave maliciously. For example, Järviniemi & Hubinger (2024) report that realistic corporate-style assistant settings can elicit deception without adversarial prompting. Meinke et al. (2025) further report that frontier models can engage in in-context scheming, including behavior that persists when interrogated in follow-up exchanges.
 
-This dissertation builds on these findings by examining whether deception behavior varies systematically with **perceived oversight intensity**.
+This dissertation builds on these findings by examining whether deception behavior varies systematically with *perceived oversight intensity*.
 
 == 2. Theoretical Foundations: From Misgeneralization to Strategic Deception
 
@@ -14,7 +14,7 @@ A useful distinction in this area is between errors of generalization and behavi
 
 Goal misgeneralization has been formalized as a failure to generalize the intended goal out-of-distribution, even when the underlying capability is present (Langosco et al., 2023). In contrast, in-context scheming can be characterized as goal pursuit combined with an adaptive strategy that is sensitive to the surrounding evaluation context (Meinke et al., 2025).
 
-Related work frames this risk within **deceptive alignment monitoring**, where the threat model focuses on systems that behave reasonably while secretly modifying behavior for ulterior reasons (Carranza et al., 2023). Under this lens, the primary concern is not only whether the model fails a task, but whether it may manage information strategically.
+Related work frames this risk within *deceptive alignment monitoring*, where the threat model focuses on systems that behave reasonably while secretly modifying behavior for ulterior reasons (Carranza et al., 2023). Under this lens, the primary concern is not only whether the model fails a task, but whether it may manage information strategically.
 
 == 3. Empirical Precedents: In-Context Scheming as an Emergent Capability
 

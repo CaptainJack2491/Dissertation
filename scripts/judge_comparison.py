@@ -194,13 +194,13 @@ def compare_two_csvs(csv1_path: str, csv2_path: str) -> Dict:
 def run_all_models(
     logs_dir: str, scenarios_dir: str, logs: List[str], output_dir: str
 ) -> tuple[List[str], List[tuple]]:
-    """Run all judge model pairs and save to separate CSVs."""
+    """Run all judge model pairs and save to separate CSVs. Skips models with existing CSVs."""
     models = [
-        ("claude-sonnet-4-20250514", "anthropic"),
-        ("gpt-4.1", "openai"),
+        ("claude-sonnet-4-6", "anthropic"),
         ("gpt-4.1-mini", "openai"),
-        ("claude-haiku-4-20250514", "anthropic"),
-        ("grok-fast-4.1", "xai"),
+        ("claude-haiku-4-5-20251001", "anthropic"),
+        ("grok-4-1-fast-reasoning", "xai"),
+        ("grok-4-1-fast-non-reasoning", "xai"),
     ]
 
     csv_paths = []
@@ -208,6 +208,10 @@ def run_all_models(
         safe_name = model_id.replace("-", "_").replace(".", "_")
         output_path = os.path.join(output_dir, f"results_{safe_name}.csv")
         csv_paths.append(output_path)
+
+        if os.path.exists(output_path):
+            print(f"\n=== Skipping: {model_id} (CSV already exists: {output_path}) ===")
+            continue
 
         print(f"\n=== Running: {model_id} (both prongs) ===")
         verdicts = run_judgment(logs_dir, scenarios_dir, logs, model_id, provider)
