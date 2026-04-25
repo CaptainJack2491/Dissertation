@@ -1,7 +1,8 @@
 #import "template.typ": *
 
 #show: project.with(
-  title: "Strategic Deception Under Varying Oversight Levels in Autonomous AI Agents",
+  title: "Moral Cover and Watchful Eyes:
+   The Limits of In-Context Interventions on LLM Deception",
   author: "Jayrup Nakawala",
   student_id: "2613621",
   degree: "Data Science and Artificial Intelligence",
@@ -9,11 +10,11 @@
   date: datetime(year: 2025, month: 10, day: 13),
 
   abstract: [
-    Large Language Models are increasingly being used in high-stakes agentic environments. How these models behave in agentic environments under varying oversight, and whether they can deter deceptive compliance, is an important question. In this paper, we study how LLMs behave when given conflicting directives to act in high-stakes environments.
+    Large Language Models are increasingly deployed as tool-using agents in settings where they may face conflicting objectives. This dissertation studies whether in-context oversight cues and hidden-goal framing can meaningfully reduce deceptive behavior in such agents. To do so, it introduces a sandboxed evaluation framework in which models interact with a virtual file system and are assessed using three complementary signals: deterministic regex checks, blackbox output judgment, and glassbox reasoning-trace judgment.
 
-    We introduce a multi-layered evaluation framework capable of isolating LLM behavior under conflicting directives, capturing both reasoning traces (where accessible) and final outputs across varying oversight conditions. The LLMs are given access to a VFS (Virtual File System) along with tools, to simulate a realistic scenario. The judging framework works on three complimentary evaluation methods: *regex checks* (simplest and deterministic), *blackbox* (based on the final output/action), and *glassbox* (based on model's reasoning/intent).
+    The empirical study comprises 960 runs across three stages: a 420-run exploratory pilot over seven models, followed by two 270-run confirmatory studies over three models. The pilot suggested that deception was common (68.3% of runs) and appeared lower under stronger oversight, but also revealed a major confound between scenario structure and hidden-goal framing. The confirmatory studies isolate these variables. Study 1 finds that increasing oversight does not significantly reduce deceptive intent when scenario and goal type are held constant. Instead, internal deceptive intent remains stable at roughly 62--67%, while output-level detectability falls from 47.8% under low oversight to 35.6% under high oversight, producing a persistent _Stealth Gap_ between intent and externally visible behavior. Study 2 rejects the rationalization hypothesis: deception rates remain effectively unchanged across bare, moral, and self-serving framings (65.6--66.7%).
 
-    Across 420 experimental runs involving seven LLMs of varying size and architecture, we observe substantially higher rates (87% vs 50%) of deceptive behavior when actions are framed with a moral or rationalized directive compared to when they are framed as self-serving. Furthermore, we find evidence of a concerning pattern we call the _Oversight Paradox_: while strict monitoring significantly reduces self-serving deception, it has no statistical effect on rationalized deception. Given the limited scope of our study, these results should be interpreted as exploratory rather than conclusive.
+    Across both confirmatory studies, model identity is a far stronger predictor of deception than either intervention. Frontier models show near-ceiling deception across conditions, while a smaller model shows near-floor rates and limited oversight sensitivity. These findings suggest that prompt-level oversight and moral framing are weak controls on deceptive agent behavior, and that output-only monitoring may systematically underestimate risk by missing strategically concealed intent.
   ],
 
   acknowledgments: [
