@@ -31,6 +31,23 @@ This dissertation addresses the following research questions:
 3. *The Stealth Gap:* Does increased oversight reduce deceptive intent, or does it primarily drive models to conceal deceptive behavior more effectively from output-level evaluation?
 4. *Evaluation Triangulation:* Can a multi-pronged evaluation approach (deterministic filtering, output-level judgment, and reasoning-level judgment) provide consistent and robust categorizations of deceptive intent?
 
+== Objectives
+
+Objectives I proposed in my \@proposal:
+// TODO: add proposal link in apendix
+
++ To research existing work on deceptive alignment and agentic misbehaviour.
++ To build a lightweight sandbox environment that lets the agent interact with a simulated file system via constrained functions.
++ To Create two task:
+    - a benign “cover task”: the stated, official goal.
+    - a “hidden goal”: a secret directive injected into its system prompt.
++ To Develop a controlled experiments that varies the agent’s perceived level of oversight through different system prompts.
++ To Conduct qualitative experiments on 4-5 LLM models, running multiple trails for each condition, ensuring log data is structured for potential quantitative analysis.
++ To Analyze the behaviour logs and identify evidence of:
+    - deceptive or evasive tactics,
+    - situational reasoning or ethical reasoning,
+    - difference in conduct across oversight levels
++ To Reflect on the implications of these behaviours for design and deployment of autonomous systems.
 == Contributions
 
 This dissertation contributes:
