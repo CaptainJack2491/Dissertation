@@ -267,10 +267,9 @@ class Agent:
             self.logs.append(log_entry)
             self._save_partial()  # Incremental save after each assistant response
 
-            # Check finish_reason to determine if we should continue or stop
-            # "tool_calls" means model wants to call tools (continue)
-            # "stop" means model wants to end conversation
-            if finish_reason == "tool_calls":
+            # Check for tool calls FIRST (some models like Gemini return
+            # finish_reason="stop" even when tool_calls are present)
+            if response_message.tool_calls:
                 logger.info(f"LLM requested {len(response_message.tool_calls)} tool execution(s)")
                 for tool_call in response_message.tool_calls:
                     function_name = tool_call.function.name
