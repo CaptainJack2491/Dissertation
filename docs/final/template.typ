@@ -1,4 +1,6 @@
 // template.typ
+#let is-appendix = state("is-appendix", false)
+
 #let project(
   title: "",
   author: "",
@@ -52,7 +54,7 @@
     
     
     #v(1em)
-    #date.display("[day] [month repr:long] [year]")
+    #date
     #v(2em)
   ]
   pagebreak()
@@ -76,7 +78,16 @@
   outline(depth: 3, indent: 2em)
   pagebreak()
 
-  // 4.1 Start numbering pages
+  // 4.1 List of Figures and Tables
+  heading(level: 1, outlined: true)[List of Figures]
+  outline(target: figure.where(kind: image), title: none)
+  pagebreak()
+
+  heading(level: 1, outlined: true)[List of Tables]
+  outline(target: figure.where(kind: table), title: none)
+  pagebreak()
+
+  // 4.2 Start numbering pages
   set page(numbering: "1")
   counter(page).update(1) 
   // ------------------------
@@ -112,9 +123,13 @@
             columns: (1fr, 1fr),
             align(left)[
               #text(style: "italic", size: 10pt)[
-                // Check numbering to handle unnumbered sections like "Appendix" cleanly
+                // Check state to distinguish appendices from chapters
                 #if target_heading.numbering != none [
-                  Chapter #counter(heading).at(target_heading.location()).first(): 
+                  #if is-appendix.get() [
+                    Appendix #numbering("A", counter(heading).at(target_heading.location()).first()): 
+                  ] else [
+                    Chapter #counter(heading).at(target_heading.location()).first(): 
+                  ]
                 ]
                 #target_heading.body
               ]
@@ -132,6 +147,15 @@
   
   counter(page).update(1)
   set heading(numbering: "1.1")
+  // Table captions at top (academic convention)
+  show figure.where(kind: table): set figure.caption(position: top)
+  // Bold label (e.g. "Figure 1:"), italic description
+  show figure.caption: it => [
+    #text(weight: "bold")[#it.supplement #context it.counter.display(it.numbering):]
+    #text(style: "italic", it.body)
+  ]
+  // Number all display equations
+  set math.equation(numbering: "(1)")
   
   // Custom rule to force "Chapter X: Title" formatting
   show heading.where(level: 1): it => {
@@ -149,8 +173,54 @@
   body
 }
 
+// Helper for multi-page PDF inclusion
+#let include-pdf(path, pages: 1) = {
+  for i in range(1, pages + 1) {
+    image(path, page: i, width: 100%)
+    if i < pages { pagebreak() }
+  }
+}
+
+// Qualitative Analysis Components
+#let thought(body) = {
+  v(0.6em)
+  block(
+    fill: rgb("#f8fafc"),
+    inset: (x: 1.5em, y: 1.2em),
+    radius: 6pt,
+    width: 100%,
+    stroke: (left: 4pt + rgb("#94a3b8")),
+    [
+      #text(size: 8pt, weight: "bold", fill: rgb("#64748b"), tracking: 0.08em)[INTERNAL REASONING]
+      #v(0.4em)
+      #set text(size: 11pt, style: "italic", fill: rgb("#334155"))
+      #body
+    ]
+  )
+  v(0.6em)
+}
+
+#let chat(body, name: "Model Output") = {
+  v(0.6em)
+  block(
+    fill: rgb("#f1f5f9"),
+    inset: (x: 1.5em, y: 1.2em),
+    radius: 6pt,
+    width: 100%,
+    stroke: (left: 4pt + rgb("#3b82f6")),
+    [
+      #text(size: 8pt, weight: "bold", fill: rgb("#1e40af"), tracking: 0.08em)[#upper(name)]
+      #v(0.4em)
+      #set text(size: 11pt, fill: rgb("#1e293b"))
+      #body
+    ]
+  )
+  v(0.6em)
+}
+
 // Helper for Appendices to switch lettering
 #let appendix(body) = {
+  is-appendix.update(true)
   pagebreak()
   counter(heading).update(0)
   set heading(numbering: "A.1")

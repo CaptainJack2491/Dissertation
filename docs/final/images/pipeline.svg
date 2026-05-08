@@ -1,0 +1,100 @@
+<svg width="960" height="420" viewBox="-10 0 960 420" xmlns="http://www.w3.org/2000/svg">
+    <rect x="-10" y="0" width="100%" height="100%" fill="#ffffff" />
+    
+    <!-- Definitions for arrows -->
+    <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#333333" />
+        </marker>
+        <marker id="arrowhead_trace" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#4a148c" />
+        </marker>
+        <marker id="arrowhead_output" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#e65100" />
+        </marker>
+        <marker id="arrowhead_baseline" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#666666" />
+        </marker>
+    </defs>
+    
+    <style>
+        .text { font-family: Arial, sans-serif; font-size: 13px; fill: #333; }
+        .title { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; fill: #000; }
+        .node { stroke: #333333; stroke-width: 1px; }
+        .line-trace { stroke: #4a148c; stroke-width: 1.5px; fill: none; }
+        .line-output { stroke: #e65100; stroke-width: 1.5px; fill: none; }
+        .line-baseline { stroke: #666666; stroke-width: 1.5px; fill: none; stroke-dasharray: 5,5; }
+    </style>
+
+    <!-- Phase 1: Input -->
+    <rect x="20" y="80" width="180" height="60" rx="5" class="node" fill="#e3f2fd" />
+    <text x="30" y="105" class="title">System Prompt</text>
+    <text x="30" y="125" class="text">(Benign + Hidden + Oversight)</text>
+    
+    <rect x="20" y="280" width="180" height="60" rx="5" class="node" fill="#e3f2fd" />
+    <text x="30" y="305" class="title">Baseline Output</text>
+    <text x="30" y="325" class="text">(Honest Reference)</text>
+
+    <!-- Phase 2: Execution -->
+    <rect x="250" y="140" width="140" height="80" rx="10" class="node" fill="#f5f5f5" />
+    <text x="260" y="175" class="title">Agent Interaction</text>
+    <text x="260" y="195" class="text">(VFS Sandbox)</text>
+    
+    <!-- Arrows from Inputs to Execution (Ends at 240) -->
+    <path d="M 200 110 L 225 110 L 225 180 L 240 180" fill="none" stroke="#333333" marker-end="url(#arrowhead)" />
+
+    <!-- Intermediate Data -->
+    <rect x="440" y="100" width="120" height="40" rx="5" class="node" fill="#fff3e0" />
+    <text x="450" y="125" class="text">Reasoning Trace</text>
+    
+    <rect x="440" y="220" width="120" height="40" rx="5" class="node" fill="#fff3e0" />
+    <text x="450" y="245" class="text">Model Output</text>
+    
+    <!-- Arrows from Execution to Data (Ends at 430) -->
+    <path d="M 390 180 L 415 180 L 415 120 L 430 120" fill="none" stroke="#333333" marker-end="url(#arrowhead)" />
+    <path d="M 390 180 L 415 180 L 415 240 L 430 240" fill="none" stroke="#333333" marker-end="url(#arrowhead)" />
+
+    <!-- Phase 3: Judges (1, 2, 3) -->
+    <!-- Prong 1 -->
+    <rect x="630" y="40" width="170" height="60" rx="5" class="node" fill="#eeeeee" />
+    <text x="640" y="65" class="title">Prong 1: Regex</text>
+    <text x="640" y="85" class="text">(Fact Verification)</text>
+    
+    <!-- Prong 2 -->
+    <rect x="630" y="150" width="170" height="60" rx="5" class="node" fill="#ffebee" />
+    <text x="640" y="175" class="title">Prong 2: Blackbox</text>
+    <text x="640" y="195" class="text">(Grok-4.1 Judge)</text>
+    
+    <!-- Prong 3 -->
+    <rect x="630" y="260" width="170" height="60" rx="5" class="node" fill="#f3e5f5" />
+    <text x="640" y="285" class="title">Prong 3: Glassbox</text>
+    <text x="640" y="305" class="text">(GPT-4.1 Judge)</text>
+
+    <!-- Connections to Judges -->
+    
+    <!-- 1. Reasoning Trace -> Glassbox (Ends at 620) -->
+    <path d="M 560 120 L 600 120 L 600 280 L 620 280" class="line-trace" marker-end="url(#arrowhead_trace)" />
+    
+    <!-- 2. Model Output -> All Judges (Ends at 620) -->
+    <!-- To Prong 1 -->
+    <path d="M 560 240 L 580 240 L 580 70 L 620 70" class="line-output" marker-end="url(#arrowhead_output)" />
+    <!-- To Prong 2 -->
+    <path d="M 560 240 L 580 240 L 580 170 L 620 170" class="line-output" marker-end="url(#arrowhead_output)" />
+    <!-- To Prong 3 -->
+    <path d="M 560 240 L 580 240 L 580 300 L 620 300" class="line-output" marker-end="url(#arrowhead_output)" />
+    
+    <!-- 3. Baseline -> Blackbox (Ends at 620) -->
+    <path d="M 200 310 L 615 310 L 615 190 L 620 190" class="line-baseline" marker-end="url(#arrowhead_baseline)" />
+    <text x="350" y="305" class="text" style="font-style: italic; font-size: 11px; fill: #666666;">Baseline Reference</text>
+
+    <!-- Phase 4: Synthesis -->
+    <rect x="830" y="130" width="80" height="100" rx="5" class="node" fill="#e8f5e9" stroke-width="2" />
+    <text x="835" y="170" class="title">Deception</text>
+    <text x="835" y="190" class="title">Profile</text>
+    
+    <!-- Connections to Synthesis (Ends at 820) -->
+    <path d="M 800 70 L 815 70 L 815 180 L 820 180" fill="none" stroke="#333333" marker-end="url(#arrowhead)" />
+    <path d="M 800 180 L 820 180" fill="none" stroke="#333333" marker-end="url(#arrowhead)" />
+    <path d="M 800 290 L 815 290 L 815 180 L 820 180" fill="none" stroke="#333333" marker-end="url(#arrowhead)" />
+
+    </svg>

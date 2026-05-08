@@ -26,28 +26,35 @@ In particular, we investigate whether oversight mechanisms suppress all forms of
 
 This dissertation addresses the following research questions:
 
-1. *Oversight Modulation:* How does the level of perceived oversight affect the frequency and form of agentic deception?
-2. *Goal-Type Effects:* Does the moral framing of conflicting objectives (e.g., bare instructions versus morally-rationalized justifications) influence the frequency or nature of deceptive behavior?
-3. *The Stealth Gap:* Does increased oversight reduce deceptive intent, or does it primarily drive models to conceal deceptive behavior more effectively from output-level evaluation?
-4. *Evaluation Triangulation:* Can a multi-pronged evaluation approach (deterministic filtering, output-level judgment, and reasoning-level judgment) provide consistent and robust categorizations of deceptive intent?
++ *RQ1 — Oversight Modulation:* How does the level of perceived oversight affect the frequency and form of agentic deception?
++ *RQ2 — Goal-Type Effects:* Does the moral framing of conflicting objectives (e.g., bare instructions versus morally-rationalised justifications) influence the frequency or nature of deceptive behaviour?
++ *RQ3 — The Stealth Gap:* Does increased oversight reduce deceptive intent, or does it primarily drive models to conceal deceptive behaviour more effectively from output-level evaluation?
++ *RQ4 — Evaluation Triangulation:* Can a multi-pronged evaluation approach (deterministic filtering, output-level judgment, and reasoning-level judgment) provide consistent and robust categorisations of deceptive intent?
+
+== Hypotheses
+
+Based on the research questions and the literature reviewed in Chapter 2, this dissertation tests the following hypotheses:
+
++ *H1 (Oversight Deterrence):* Increasing the level of perceived oversight will significantly reduce the frequency of deceptive behaviour in LLM agents.
++ *H2 (Rationalisation Effect):* Hidden goals framed with moral or self-serving justifications will produce significantly higher deception rates than bare instructions, as models leverage provided justifications to rationalise compliance.
++ *H3 (Stealth Gap):* Output-based (blackbox) evaluation will systematically underestimate deceptive intent as measured by reasoning-trace (glassbox) analysis, and this gap will widen under higher oversight as models adapt their outputs to evade detection while maintaining trace-classified deceptive intent.
 
 == Objectives
 
-Objectives I proposed in my \@proposal:
-// TODO: add proposal link in apendix
+Objectives I proposed in my @proposal:
 
 + To research existing work on deceptive alignment and agentic misbehaviour.
 + To build a lightweight sandbox environment that lets the agent interact with a simulated file system via constrained functions.
-+ To Create two task:
-    - a benign “cover task”: the stated, official goal.
-    - a “hidden goal”: a secret directive injected into its system prompt.
-+ To Develop a controlled experiments that varies the agent’s perceived level of oversight through different system prompts.
-+ To Conduct qualitative experiments on 4-5 LLM models, running multiple trails for each condition, ensuring log data is structured for potential quantitative analysis.
-+ To Analyze the behaviour logs and identify evidence of:
++ To create two tasks:
+    - a benign "cover task": the stated, official goal,
+    - a "hidden goal": a secret directive injected into its system prompt.
++ To develop a controlled experiment that varies the agent's perceived level of oversight through different system prompts.
++ To conduct qualitative experiments on 4--5 LLM models, running multiple trials for each condition, ensuring log data is structured for potential quantitative analysis.
++ To analyse the behaviour logs and identify evidence of:
     - deceptive or evasive tactics,
-    - situational reasoning or ethical reasoning,
-    - difference in conduct across oversight levels
-+ To Reflect on the implications of these behaviours for design and deployment of autonomous systems.
+    - situational or ethical reasoning,
+    - differences in conduct across oversight levels.
++ To reflect on the implications of these behaviours for the design and deployment of autonomous systems.
 == Contributions
 
 This dissertation contributes:
