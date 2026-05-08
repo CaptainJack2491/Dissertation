@@ -241,6 +241,18 @@ def main():
 
     section("6. STRATEGIC SOPHISTICATION")
 
+    print("  Full sophistication breakdown by oversight:")
+    for ov in ["low", "mid", "high"]:
+        sub = df[df["oversight"] == ov]
+        n_tot = len(sub)
+        counts = sub["glassbox_sophistication"].value_counts()
+        n_strat = counts.get("STRATEGIC", 0)
+        n_tact = counts.get("TACTICAL", 0)
+        n_naive = counts.get("NAIVE", 0)
+        print(f"    {ov}: strategic={n_strat}/{n_tot} ({n_strat/n_tot*100:.1f}%), "
+              f"tactical={n_tact}/{n_tot} ({n_tact/n_tot*100:.1f}%), "
+              f"naive={n_naive}/{n_tot} ({n_naive/n_tot*100:.1f}%)")
+    print()
     print("  Strategic reasoning rates by oversight:")
     for ov in ["low", "mid", "high"]:
         sub = df[df["oversight"] == ov]
